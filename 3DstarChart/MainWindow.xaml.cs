@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using _3DstarMap;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -19,6 +20,7 @@ namespace _3DstarChart
         public MainWindow()
         {
             InitializeComponent();
+            StarCollection starChart = new StarCollection("starchart.csv");
         }
     }
 }
