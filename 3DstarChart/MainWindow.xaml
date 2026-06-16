@@ -5,8 +5,27 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:_3DstarChart"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="Star Chart" Height="600" Width="800">
     <Grid>
+        <Viewport3D Name="MainViewport">
 
+            <Viewport3D.Camera>
+                <PerspectiveCamera Position="0, 0, 40" 
+                                   LookDirection="0, 0, -1" 
+                                   UpDirection="0, 1, 0" 
+                                   FieldOfView="60" />
+            </Viewport3D.Camera>
+
+            <ModelVisual3D>
+                <ModelVisual3D.Content>
+                    <Model3DGroup x:Name="StarGroup">
+
+                        <AmbientLight Color="White" />
+
+                    </Model3DGroup>
+                </ModelVisual3D.Content>
+            </ModelVisual3D>
+
+        </Viewport3D>
     </Grid>
 </Window>
