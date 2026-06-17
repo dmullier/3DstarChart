@@ -7,7 +7,7 @@
 //     public double Y { get; set; } 
 //     public double Z { get; set; } 
 //     public double Magnitude { get; set; } 
-//     public string Spect { get; set; } 
+//     public string SpectralType { get; set; } 
 // }
 
 // CREATE THE STARMAP CLASS BELOW:
@@ -74,7 +74,7 @@ namespace _3DstarMap
                         X = double.Parse(values[17]),
                         Y = double.Parse(values[18]),
                         Z = double.Parse(values[19]),
-                        Spect = values[16],
+                        SpectralType = values[16],
                         Magnitude = double.Parse(values[13])
                     };
 
