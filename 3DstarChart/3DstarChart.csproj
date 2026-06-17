@@ -10,6 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="HelixToolkit.Wpf" Version="3.1.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="starchart.csv">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
