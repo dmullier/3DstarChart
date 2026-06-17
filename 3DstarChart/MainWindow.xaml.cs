@@ -18,6 +18,12 @@ namespace _3DstarChart
         public MainWindow()
         {
             InitializeComponent();
+            // Remap controls cleanly for a laptop trackpad:
+            // Control + Left Click drag will now Rotate/Orbit
+            MainViewport.RotateGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Control);
+
+            // Shift + Left Click drag will now Pan the camera
+            MainViewport.PanGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Shift);
             PopulateStarMap();
         }
 

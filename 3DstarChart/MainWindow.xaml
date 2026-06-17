@@ -9,9 +9,8 @@
         Title="Star Chart" Height="600" Width="800" Background="Black">
     <Grid>
         <helix:HelixViewport3D Name="MainViewport" 
-                               ZoomExtentsWhenLoaded="False" 
-                               ShowCoordinateSystem="True">
-
+                       ZoomExtentsWhenLoaded="False" 
+                       ShowCoordinateSystem="True">
             <helix:HelixViewport3D.Camera>
                 <PerspectiveCamera Position="0, 0, 40" LookDirection="0, 0, -1" UpDirection="0, 1, 0"/>
             </helix:HelixViewport3D.Camera>
