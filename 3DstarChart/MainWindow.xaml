@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:_3DstarChart"
         mc:Ignorable="d"
-        Title="Star Chart" Height="600" Width="800">
+        Title="Star Chart" Height="600" Width="800" Background="Black">
     <Grid>
         <Viewport3D Name="MainViewport">
 
