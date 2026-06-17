@@ -6,6 +6,7 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Navigation;
@@ -24,7 +25,9 @@ namespace _3DstarChart
 
             // Shift + Left Click drag will now Pan the camera
             MainViewport.PanGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Shift);
+            MainViewport.ZoomGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Alt);
             PopulateStarMap();
+            AnimateCameraToSun();
         }
 
         private void PopulateStarMap()
@@ -51,6 +54,28 @@ namespace _3DstarChart
 
                 // Mount the output mesh asset straight into the UI tree viewport
                 StarGroup.Children.Add(starModel);
+            }
+        }
+        private void AnimateCameraToSun()
+        {
+            // 1. Safely extract the active camera from the Helix Viewport container
+            if (MainViewport.Camera is PerspectiveCamera helixCamera)
+            {
+                // 2. Define the starting point and destination coordinates
+                Point3D startPosition = new Point3D(0, 0, 40);
+                Point3D endPosition = new Point3D(0, 0, 4); // Sits right in front of the Sun
+
+                // 3. Create the 3D Point Animation
+                Point3DAnimation cameraFlyIn = new Point3DAnimation
+                {
+                    From = startPosition,
+                    To = endPosition,
+                    Duration = new Duration(TimeSpan.FromSeconds(8)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+
+                // 4. Run the animation on the extracted camera instance
+                helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, cameraFlyIn);
             }
         }
     }
