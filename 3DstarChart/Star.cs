@@ -14,7 +14,7 @@ namespace _3DstarMap
         public double Y { get; set; }
         public double Z { get; set; }
         public double Magnitude { get; set; }
-        public string Spect { get; set; }
+        public string SpectralType { get; set; }
         /// <summary>
         /// Represents a star with its properties.
         /// </summary>
@@ -58,7 +58,7 @@ namespace _3DstarMap
             /// <summary>
             /// Spectral type of the star (e.g., O, B, A, F, G, K, M).
             /// </summary>
-            Spect = "";
+            SpectralType = "";
         }
         /// <summary>
         /// Sets the ID of this object.
@@ -119,7 +119,7 @@ namespace _3DstarMap
 
         public void SetSPECT(string spect)
         {
-            Spect = spect;
+            SpectralType = spect;
         }
     }
 }
