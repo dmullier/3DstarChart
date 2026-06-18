@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:_3DstarChart"
         xmlns:helix="clr-namespace:HelixToolkit.Wpf;assembly=HelixToolkit.Wpf" 
         mc:Ignorable="d"
-        Title="Star Chart" Height="600" Width="800" Background="Black">
+        Title="Star Chart" Height="1024" Width="1280" Background="Black">
     <Grid>
         <helix:HelixViewport3D Name="MainViewport" 
                        ZoomExtentsWhenLoaded="False" 

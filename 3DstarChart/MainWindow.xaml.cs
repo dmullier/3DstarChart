@@ -46,7 +46,7 @@ namespace _3DstarChart
                 if (star.Id == 0) continue; // Skip Sun duplication
 
                 // Ask the factory to figure out the proper color mapping
-                Color starColor = StarModelFactory.GetColorFromSpectrum(star.SpectralType);
+                Color starColor = StarModelFactory.GetColourFromSpectrum(star.SpectralType);
                 double size = 0.15;
 
                 // Ask the factory to construct the actual 3D visual component
@@ -62,7 +62,7 @@ namespace _3DstarChart
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
                 // 2. Define the starting point and destination coordinates
-                Point3D startPosition = new Point3D(0, 0, 40);
+                Point3D startPosition = new Point3D(0, 0, 1000);
                 Point3D endPosition = new Point3D(0, 0, 4); // Sits right in front of the Sun
 
                 // 3. Create the 3D Point Animation
