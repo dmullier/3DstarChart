@@ -23,6 +23,7 @@ namespace _3DstarChart
         private PointsVisual3D DustField;
         private TextBlock CurrentSystemText;
         private ItemsControl NeighborsTextList;
+        private ItemsControl DistantTextList;
         private bool isAnimationFinished = false;
         private Point3D[] dustParticles;
         private const int ParticleCount = 800;
@@ -32,7 +33,7 @@ namespace _3DstarChart
         private TranslateTransform3D SunPositionTransform = new TranslateTransform3D(0, 0, 0);
         private Point3D cameraTargetPosition;
 
-        // NEW GLOBAL HUD HANDLES FOR EXTRA METADATA ROWS
+        // GLOBAL HUD HANDLES FOR EXTRA METADATA ROWS
         private TextBlock HudSpectralText;
         private TextBlock HudCoordsText;
         private TextBlock HudDetailText;
@@ -56,9 +57,12 @@ namespace _3DstarChart
             MainViewport.Children.Add(TextContainer);
             MainViewport.Children.Add(DustField);
 
+            // =====================================================================
+            // BUILD ONE PERMANENT HIERARCHY TREE TO IMMUNIZE ANIMATIONS
+            // =====================================================================
             var stableGroup = new Transform3DGroup();
-            stableGroup.Children.Add(SunScale);
-            stableGroup.Children.Add(SunPositionTransform);
+            stableGroup.Children.Add(SunScale);             // Layer 1: Sizing animations
+            stableGroup.Children.Add(SunPositionTransform);  // Layer 2: Spatial location shifts
             SunGroup.Transform = stableGroup;
 
             string filePath = "starchart.csv";
@@ -71,9 +75,26 @@ namespace _3DstarChart
 
             PopulateStarMap();
 
+            // =====================================================================
             // DYNAMIC RETRO HUD INJECTION
-            var hudStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(20), Width = 260 };
-            var systemBorder = new Border { BorderBrush = Brushes.Cyan, BorderThickness = new Thickness(2), Background = new SolidColorBrush(Color.FromArgb(128, 0, 0, 0)), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10) };
+            // =====================================================================
+            var hudStack = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(20),
+                Width = 260
+            };
+
+            // A. CURRENT SYSTEM READOUT PROFILE BOX
+            var systemBorder = new Border
+            {
+                BorderBrush = Brushes.Cyan,
+                BorderThickness = new Thickness(2),
+                Background = new SolidColorBrush(Color.FromArgb(128, 0, 0, 0)),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
             var systemInnerStack = new StackPanel();
 
             systemInnerStack.Children.Add(new TextBlock { Text = "CURRENT SYSTEM", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold });
@@ -82,30 +103,31 @@ namespace _3DstarChart
             CurrentSystemText = new TextBlock { Text = homeName, FontSize = 22, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 8) };
             systemInnerStack.Children.Add(CurrentSystemText);
 
-            // Subtle HUD layout divider line
+            // Subtle HUD alignment divider rule line
             systemInnerStack.Children.Add(new Border { BorderBrush = Brushes.DarkCyan, BorderThickness = new Thickness(0, 0, 0, 1), Margin = new Thickness(0, 0, 0, 8) });
 
-            // Determine initial string readouts from the home system entry
+            // Extract textual parameters for initialization readout rows
             string spectral = homeStar != null ? homeStar.SpectralType : "G2V";
             string coords = homeStar != null ? $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}" : "X:0.00 Y:0.00 Z:0.00";
             string details = homeStar != null ? $"CATALOG ID: {homeStar.Id:D4}" : "CLASSIFICATION: STAR";
 
-            // Allocate the dynamic elements to our global class fields
+            // Bind instance metrics layout to the global tracking field identifiers
             HudSpectralText = new TextBlock { Text = $"CLASS: {spectral}", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 2) };
             HudCoordsText = new TextBlock { Text = coords, FontSize = 11, Foreground = Brushes.Yellow, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 2) };
             HudDetailText = new TextBlock { Text = details, FontSize = 11, Foreground = Brushes.LightGray, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 0) };
 
-            // Inject them straight into the control stack
             systemInnerStack.Children.Add(HudSpectralText);
             systemInnerStack.Children.Add(HudCoordsText);
             systemInnerStack.Children.Add(HudDetailText);
-
             systemBorder.Child = systemInnerStack;
             hudStack.Children.Add(systemBorder);
-            hudStack.Children.Add(new TextBlock { Text = "CLOSEST NEIGHBORS:", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 0, 6) });
+
+            // B. PRIMARY SYSTEM NAVIGATION LIST LABELS (INTERACTIVE TOP 5)
+            hudStack.Children.Add(new TextBlock { Text = "CLOSEST NEIGHBOURS:", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 0, 6) });
 
             NeighborsTextList = new ItemsControl();
             var rowTemplate = new DataTemplate();
+
             var borderFactory = new FrameworkElementFactory(typeof(Border));
             borderFactory.SetValue(Border.BorderBrushProperty, Brushes.Cyan);
             borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1));
@@ -116,6 +138,7 @@ namespace _3DstarChart
             borderFactory.AddHandler(Border.MouseLeftButtonDownEvent, new MouseButtonEventHandler(NeighborRow_Click));
 
             var gridFactory = new FrameworkElementFactory(typeof(Grid));
+
             var nameFactory = new FrameworkElementFactory(typeof(TextBlock));
             nameFactory.SetBinding(TextBlock.TextProperty, new Binding("Name"));
             nameFactory.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Left);
@@ -138,14 +161,55 @@ namespace _3DstarChart
             NeighborsTextList.ItemTemplate = rowTemplate;
             hudStack.Children.Add(NeighborsTextList);
 
-            if (MainViewport.Parent is Grid rootGrid) { rootGrid.Children.Add(hudStack); }
+            // C. DEEP SCAN TRACKING PANELS (NON-INTERACTIVE BACKUP 5)
+            hudStack.Children.Add(new TextBlock { Text = "DEEP RANGE SCAN:", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(4, 6, 0, 6) });
 
-            // Set dynamic camera properties
+            DistantTextList = new ItemsControl();
+            var secondaryTemplate = new DataTemplate();
+
+            var baseBorder = new FrameworkElementFactory(typeof(Border));
+            baseBorder.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(0, 100, 100)));
+            baseBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            baseBorder.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(40, 0, 0, 0)));
+            baseBorder.SetValue(Border.PaddingProperty, new Thickness(8, 4, 8, 4));
+            baseBorder.SetValue(Border.MarginProperty, new Thickness(0, 0, 0, 4));
+
+            var baseGrid = new FrameworkElementFactory(typeof(Grid));
+
+            var subNameText = new FrameworkElementFactory(typeof(TextBlock));
+            subNameText.SetBinding(TextBlock.TextProperty, new Binding("Name"));
+            subNameText.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+            subNameText.SetValue(TextBlock.ForegroundProperty, Brushes.Gray);
+            subNameText.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
+            subNameText.SetValue(TextBlock.FontSizeProperty, 12.0);
+
+            var subDistText = new FrameworkElementFactory(typeof(TextBlock));
+            subDistText.SetBinding(TextBlock.TextProperty, new Binding("DistanceString"));
+            subDistText.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Right);
+            subDistText.SetValue(TextBlock.ForegroundProperty, Brushes.DarkGoldenrod);
+            subDistText.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
+            subDistText.SetValue(TextBlock.FontSizeProperty, 12.0);
+
+            baseGrid.AppendChild(subNameText);
+            baseGrid.AppendChild(subDistText);
+            baseBorder.AppendChild(baseGrid);
+            secondaryTemplate.VisualTree = baseBorder;
+            DistantTextList.ItemTemplate = secondaryTemplate;
+            hudStack.Children.Add(DistantTextList);
+
+            // Inject compiled dashboard assembly overlay into parent grid viewport container layers
+            if (MainViewport.Parent is Grid rootGrid)
+            {
+                rootGrid.Children.Add(hudStack);
+            }
+
+            // Initialize tracking mechanisms and trigger initial runtime loops
             AnimateToStar();
             InitializeDustField();
 
             CompositionTarget.Rendering += OnRenderFrame;
         }
+
         private void PopulateStarMap()
         {
             if (masterChart == null) return;
@@ -163,8 +227,7 @@ namespace _3DstarChart
             // =====================================================================
             // DYNAMIC RETRO 'ELITE' RADIAL GLOW TEXTURE GENERATION
             // =====================================================================
-            // 1. Fetch the true spectral system color for our active home star
-            Color systemStarColor = Colors.White; // Safe default fallback
+            Color systemStarColor = Colors.White;
             if (homeStar != null)
             {
                 systemStarColor = StarModelFactory.GetColourFromSpectrum(homeStar.SpectralType);
@@ -175,11 +238,9 @@ namespace _3DstarChart
             {
                 var glowGradient = new RadialGradientBrush();
 
-                // 2. Map the true system color stops directly onto our radial mask layers
                 glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.0));       // Hot white fusion core
                 glowGradient.GradientStops.Add(new GradientStop(systemStarColor, 0.45));   // Core spectral body coloration
 
-                // Blend nicely out to a semi-transparent atmosphere aura
                 glowGradient.GradientStops.Add(new GradientStop(Color.FromArgb(160, systemStarColor.R, systemStarColor.G, systemStarColor.B), 0.70));
                 glowGradient.GradientStops.Add(new GradientStop(Colors.Transparent, 0.95)); // Outer void envelope
 
@@ -189,7 +250,6 @@ namespace _3DstarChart
             var renderTargetBitmap = new RenderTargetBitmap(512, 512, 96, 96, PixelFormats.Pbgra32);
             renderTargetBitmap.Render(drawingVisual);
             var imageBrush = new ImageBrush(renderTargetBitmap);
-            // =====================================================================
 
             MeshGeometry3D quadMesh = new MeshGeometry3D();
             quadMesh.Positions.Add(new Point3D(-0.01, -0.01, 0));
@@ -236,10 +296,32 @@ namespace _3DstarChart
             }
 
             neighborList.Sort((s1, s2) => s1.Distance.CompareTo(s2.Distance));
-            List<StarNeighborDisplay> top5Closest = new List<StarNeighborDisplay>();
-            for (int i = 0; i < Math.Min(5, neighborList.Count); i++) { top5Closest.Add(neighborList[i]); }
 
-            this.Resources["CachedNeighbors"] = top5Closest;
+            // =====================================================================
+            // FIXED: EXTRACT ACTIVE NAVIGATION TARGETS AND BACKUP SCAN TARGETS
+            // =====================================================================
+            List<StarNeighborDisplay> clickableStars = new List<StarNeighborDisplay>();
+            List<StarNeighborDisplay> backgroundStars = new List<StarNeighborDisplay>();
+
+            for (int i = 0; i < neighborList.Count; i++)
+            {
+                if (i < 5)
+                {
+                    clickableStars.Add(neighborList[i]);
+                }
+                else if (i < 10)
+                {
+                    backgroundStars.Add(neighborList[i]);
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            this.Resources["CachedNeighbors"] = clickableStars;
+            this.Resources["CachedDeepRange"] = backgroundStars;
+            // =====================================================================
 
             foreach (var kvp in colorGroups)
             {
@@ -266,7 +348,6 @@ namespace _3DstarChart
                     targetZ = homeStar.Z;
                 }
 
-                // Shift our star group asset to the absolute target vector position
                 SunPositionTransform.OffsetX = targetX;
                 SunPositionTransform.OffsetY = targetY;
                 SunPositionTransform.OffsetZ = targetZ;
@@ -274,15 +355,12 @@ namespace _3DstarChart
                 Vector3D lookDirection = new Vector3D(0, 0, -1);
                 Vector3D upDirection = new Vector3D(0, 1, 0);
 
-                // Compute starting and destination points safely
                 Point3D startPosition = new Point3D(targetX, targetY, targetZ + 40.0);
                 cameraTargetPosition = new Point3D(targetX, targetY, targetZ + 10.0);
 
-                // Instantly snap the static orientation properties before flight
                 helixCamera.LookDirection = lookDirection;
                 helixCamera.UpDirection = upDirection;
 
-                // Force terminate previous rendering clocks to reset the baseline
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleXProperty, null);
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleYProperty, null);
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleZProperty, null);
@@ -291,9 +369,6 @@ namespace _3DstarChart
                 SunScale.ScaleY = 1.0;
                 SunScale.ScaleZ = 1.0;
 
-                // =====================================================================
-                // FIX: NATIVE WPF CAM GLIDE ANIMATION (Replaces AnimateCamera extension)
-                // =====================================================================
                 Point3DAnimation cameraFlight = new Point3DAnimation
                 {
                     From = startPosition,
@@ -302,9 +377,7 @@ namespace _3DstarChart
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                 };
                 helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, cameraFlight);
-                // =====================================================================
 
-                // Swell up the core glow texture uniformly
                 DoubleAnimation sunSwellAnimation = new DoubleAnimation
                 {
                     From = 1.0,
@@ -318,6 +391,7 @@ namespace _3DstarChart
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleZProperty, sunSwellAnimation);
             }
         }
+
         private void NeighborRow_Click(object sender, MouseButtonEventArgs e)
         {
             if (sender is Border clickedBorder && clickedBorder.DataContext is StarNeighborDisplay selectedData)
@@ -329,9 +403,6 @@ namespace _3DstarChart
                     CurrentSystemText.Text = homeStar.Name.ToUpper();
                 }
 
-                // =====================================================================
-                // NEW: REWRITE HUD DATA STRINGS ON TRANSIT BEGIN
-                // =====================================================================
                 if (HudSpectralText != null)
                     HudSpectralText.Text = $"CLASS: {homeStar.SpectralType}";
 
@@ -340,11 +411,15 @@ namespace _3DstarChart
 
                 if (HudDetailText != null)
                     HudDetailText.Text = $"CATALOG ID: {homeStar.Id:D4}";
-                // =====================================================================
 
                 if (NeighborsTextList != null)
                 {
                     NeighborsTextList.ItemsSource = null;
+                }
+
+                if (DistantTextList != null)
+                {
+                    DistantTextList.ItemsSource = null;
                 }
 
                 isAnimationFinished = false;
@@ -389,14 +464,19 @@ namespace _3DstarChart
                     double dz = helixCamera.Position.Z - cameraTargetPosition.Z;
                     double distanceToTarget = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
-                    // Once camera settles near destination target position vector, reveal HUD elements
                     if (distanceToTarget < 0.1)
                     {
                         isAnimationFinished = true;
 
+                        // FIXED: Bind both the active neighbors list and deep scan tracking elements
                         if (this.Resources["CachedNeighbors"] is List<StarNeighborDisplay> cachedData)
                         {
                             NeighborsTextList.ItemsSource = cachedData;
+                        }
+
+                        if (this.Resources["CachedDeepRange"] is List<StarNeighborDisplay> deepRangeData)
+                        {
+                            DistantTextList.ItemsSource = deepRangeData;
                         }
                     }
                     else
@@ -407,19 +487,16 @@ namespace _3DstarChart
                 }
 
                 // 2. RUN ANIMATED SPACE DUST LAYER
-                double speed = 0.15; // Velocity at which dust particles rush past the cockpit view
+                double speed = 0.15;
                 Point3DCollection updatedPoints = new Point3DCollection(ParticleCount);
 
-                // Bounding parameters calculated straight from the destination anchor coordinates
                 double maxBufferZ = targetZ + 40.0;
                 double resetFarZ = targetZ;
 
                 for (int i = 0; i < ParticleCount; i++)
                 {
-                    // CHANGE: ADD speed to make the dust drift forward along the camera's viewpoint line
                     double nextZ = dustParticles[i].Z + speed;
 
-                    // Loop reset: Once a particle flies behind your cockpit window boundary, wrap it back to deep space
                     if (nextZ > maxBufferZ)
                     {
                         nextZ = resetFarZ;
