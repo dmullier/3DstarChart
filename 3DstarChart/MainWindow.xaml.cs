@@ -48,13 +48,15 @@ namespace _3DstarChart
             // 3. Kick off your clean animation path down to 0.0045
             AnimateCameraToSun();
         }
-
         private void PopulateStarMap()
         {
             // 1. Clear previous sun geometry content from the SunGroup container
             SunGroup.Children.Clear();
 
-            // 2. Clear out any background star layers added from previous runs
+            // 2. Clear out the dynamic text label container to prevent ghosting labels
+            TextContainer.Children.Clear();
+
+            // 3. Clear out any background star layers added from previous runs
             List<Visual3D> toRemove = new List<Visual3D>();
             foreach (var child in MainViewport.Children)
             {
@@ -88,7 +90,7 @@ namespace _3DstarChart
             // =================================================================
             MeshGeometry3D quadMesh = new MeshGeometry3D();
 
-            // Add the 4 corner coordinates of our sun disk face (Base size: 0.2 units wide)
+            // Add the 4 corner coordinates of our sun disk face (Base size: 0.02 units wide)
             quadMesh.Positions.Add(new Point3D(-0.01, -0.01, 0)); // Bottom Left
             quadMesh.Positions.Add(new Point3D(0.01, -0.01, 0));  // Bottom Right
             quadMesh.Positions.Add(new Point3D(0.01, 0.01, 0));   // Top Right
@@ -115,7 +117,7 @@ namespace _3DstarChart
             SunGroup.Children.Add(sunModel);
 
             // =================================================================
-            // LOAD DATA CATALOG & GROUP BY COLORS
+            // LOAD DATA CATALOG, GROUP BY COLORS & GENERATE LABELS
             // =================================================================
             string filePath = "starchart.csv";
             StarCollection chart = new StarCollection(filePath);
@@ -125,6 +127,7 @@ namespace _3DstarChart
             {
                 if (star.Id == 0) continue; // Skip Sun duplication
 
+                // A. Sort positions into color buckets for high-performance rendering
                 Color starColor = StarModelFactory.GetColourFromSpectrum(star.SpectralType);
 
                 if (!colorGroups.ContainsKey(starColor))
@@ -133,6 +136,25 @@ namespace _3DstarChart
                 }
 
                 colorGroups[starColor].Add(new Point3D(star.X, star.Y, star.Z));
+
+                // B. Calculate distance from Sun (0,0,0) to filter labels for smooth FPS
+                double distance = Math.Sqrt(star.X * star.X + star.Y * star.Y + star.Z * star.Z);
+
+                // Change '15.0' here if you want a wider or narrower naming bubble
+                if (distance < 15.0)
+                {
+                    var starLabel = new TextVisual3D
+                    {
+                        Text = star.Name,
+                        Position = new Point3D(star.X + 0.15, star.Y + 0.15, star.Z), // Shift slightly right/up from the star point
+                        Height = 0.18,              // Size of font geometry in 3D scene space
+                        Foreground = Brushes.Cyan,   // Retro neon hud text color
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+
+                    TextContainer.Children.Add(starLabel);
+                }
             }
 
             // Inject a single constant-pixel layer for each active color bucket
@@ -147,6 +169,7 @@ namespace _3DstarChart
                 MainViewport.Children.Add(starLayer);
             }
         }
+
         private void AnimateCameraToSun()
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
