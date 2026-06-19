@@ -290,7 +290,15 @@ namespace _3DstarChart
                 neighborList.Add(new StarNeighborDisplay { AssociatedStar = star, Name = star.Name, Distance = distanceToHome });
                 if (distanceToHome < 15.0)
                 {
-                    var starLabel = new TextVisual3D { Text = star.Name, Position = new Point3D(star.X + 0.15, star.Y + 0.15, star.Z), Height = 0.18, Foreground = Brushes.Cyan, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+                    var starLabel = new BillboardTextVisual3D
+                    {
+                        Text = star.Name,
+                        Position = new Point3D(star.X + 0.15, star.Y + 0.15, star.Z), // Keep offset position
+                        Height = 11,               // Changed from scene geometry units to uniform device-independent font pixels
+                        Foreground = Brushes.Cyan,
+                        FontWeight = FontWeights.Bold,
+                        FontFamily = new FontFamily("Consolas")
+                    };
                     TextContainer.Children.Add(starLabel);
                 }
             }
