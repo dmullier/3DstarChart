@@ -8,19 +8,20 @@
         mc:Ignorable="d"
         Title="Star Chart" Height="1024" Width="1280" Background="Black">
     <Grid>
-        <helix:HelixViewport3D Name="MainViewport" 
-                       ZoomExtentsWhenLoaded="False" 
-                       ShowCoordinateSystem="True">
+        <helix:HelixViewport3D Name="MainViewport" ZoomExtentsWhenLoaded="False" ShowCoordinateSystem="True">
             <helix:HelixViewport3D.Camera>
                 <PerspectiveCamera Position="0, 0, 40" LookDirection="0, 0, -1" UpDirection="0, 1, 0"/>
             </helix:HelixViewport3D.Camera>
 
             <ModelVisual3D>
                 <ModelVisual3D.Content>
-                    <Model3DGroup x:Name="StarGroup">
+                    <AmbientLight Color="White" />
+                </ModelVisual3D.Content>
+            </ModelVisual3D>
 
-                        <AmbientLight Color="White" />
-                    </Model3DGroup>
+            <ModelVisual3D>
+                <ModelVisual3D.Content>
+                    <Model3DGroup x:Name="SunGroup" />
                 </ModelVisual3D.Content>
             </ModelVisual3D>
 
