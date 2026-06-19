@@ -1,31 +1,34 @@
-﻿<Window x:Class="_3DstarChart.MainWindow"
+﻿ <Window x:Class="_3DstarChart.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:_3DstarChart"
+        xmlns:helix="clr-namespace:HelixToolkit.Wpf;assembly=HelixToolkit.Wpf" 
         mc:Ignorable="d"
-        Title="Star Chart" Height="600" Width="800" Background="Black">
+        Title="Star Chart" Height="1024" Width="1280" Background="Black">
     <Grid>
-        <Viewport3D Name="MainViewport">
-
-            <Viewport3D.Camera>
-                <PerspectiveCamera Position="0, 0, 40" 
-                                   LookDirection="0, 0, -1" 
-                                   UpDirection="0, 1, 0" 
-                                   FieldOfView="60" />
-            </Viewport3D.Camera>
+        <helix:HelixViewport3D Name="MainViewport" ZoomExtentsWhenLoaded="False" ShowCoordinateSystem="True">
+            <helix:HelixViewport3D.Camera>
+                <PerspectiveCamera Position="0, 0, 40" LookDirection="0, 0, -1" UpDirection="0, 1, 0"/>
+            </helix:HelixViewport3D.Camera>
 
             <ModelVisual3D>
                 <ModelVisual3D.Content>
-                    <Model3DGroup x:Name="StarGroup">
+                    <AmbientLight Color="White" />
+                </ModelVisual3D.Content>
+            </ModelVisual3D>
 
-                        <AmbientLight Color="White" />
-
+            <ModelVisual3D>
+                <ModelVisual3D.Content>
+                    <Model3DGroup x:Name="SunGroup">
+                        <Model3DGroup.Transform>
+                            <ScaleTransform3D x:Name="SunScale" ScaleX="1" ScaleY="1" ScaleZ="1" />
+                        </Model3DGroup.Transform>
                     </Model3DGroup>
                 </ModelVisual3D.Content>
             </ModelVisual3D>
 
-        </Viewport3D>
+        </helix:HelixViewport3D>
     </Grid>
 </Window>

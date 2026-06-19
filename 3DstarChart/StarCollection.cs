@@ -74,7 +74,7 @@ namespace _3DstarMap
                         X = double.Parse(values[17]),
                         Y = double.Parse(values[18]),
                         Z = double.Parse(values[19]),
-                        SpectralType = values[16],
+                        SpectralType = values[15],
                         Magnitude = double.Parse(values[13])
                     };
 

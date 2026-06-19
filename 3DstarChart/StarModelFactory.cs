@@ -41,21 +41,39 @@ namespace _3DstarChart
         }
 
         // Maps astronomical spectral classification string to a visual color representation
-        public static Color GetColorFromSpectrum(string spectralType)
+        public static Color GetColourFromSpectrum(string spectralType)
         {
+            // 1. Safety check for null or empty data strings
             if (string.IsNullOrEmpty(spectralType)) return Colors.White;
-            char classification = char.ToUpper(spectralType[0]);
 
-            switch (classification)
+            // 2. Convert to uppercase to handle entries like "dm6" or "g2v" cleanly
+            string cleanType = spectralType.ToUpper();
+
+            // 3. Handle White Dwarfs first (e.g., "DG", "DA", "DB") 
+            // They are dead cores, so let's give them a unique hot-white/cyan tint
+            if (cleanType.StartsWith("D") && cleanType.Length > 1)
             {
-                case 'O': case 'B': return Colors.LightSkyBlue;
-                case 'A': return Colors.White;
-                case 'F': return Colors.LightYellow;
-                case 'G': return Colors.Yellow;
-                case 'K': return Colors.Orange;
-                case 'M': return Colors.Red;
-                default: return Colors.White;
+                return Colors.LightCyan;
             }
+
+            // 4. Scan the string to find the first valid primary classification letter.
+            // This safely skips prefixes like "sd" or "d" and jumps straight to the core class.
+            foreach (char c in cleanType)
+            {
+                switch (c)
+                {
+                    case 'O':
+                    case 'B': return Colors.LightSkyBlue; // Hottest blue/white stars
+                    case 'A': return Colors.White;        // Pure white stars (e.g., Sirius)
+                    case 'F': return Colors.LightYellow;   // Yellow-white stars (e.g., Procyon)
+                    case 'G': return Colors.Yellow;        // Yellow stars (like our Sun)
+                    case 'K': return Colors.Orange;        // Orange dwarfs/giants (e.g., Arcturus)
+                    case 'M': return Colors.Red;           // Cool red dwarfs/giants (e.g., Proxima Centauri)
+                }
+            }
+
+            // Default fall-back color if the string is unclassified or anomalous
+            return Colors.White;
         }
     }
 }
