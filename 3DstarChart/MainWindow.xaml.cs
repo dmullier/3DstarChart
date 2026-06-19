@@ -19,34 +19,49 @@ namespace _3DstarChart
 {
     public partial class MainWindow : Window
     {
+        // 1. Declare the layers as class fields instead of XAML names
+        private ModelVisual3D TextContainer;
+        private PointsVisual3D DustField;
+        private bool isAnimationFinished = false;
+        private Point3D[] dustParticles;
+        private const int ParticleCount = 800;
+        private double lastCameraZ = -1.0;
+        private Random rand = new Random();
         public MainWindow()
         {
             InitializeComponent();
 
-            // 1. Trackpad bindings
+            // Setup input gestures smoothly
             MainViewport.RotateGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Control);
             MainViewport.PanGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Shift);
             MainViewport.ZoomGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Alt);
 
-            // 2. Wait until the window is fully loaded before rendering stars and animating
             this.Loaded += MainWindow_Loaded;
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            // 1. Generate the scene layout (which forces an internal Helix layout reset)
+            TextContainer = new ModelVisual3D();
+            DustField = new PointsVisual3D { Color = Color.FromArgb(176, 255, 255, 255), Size = 2 };
+
+            MainViewport.Children.Add(TextContainer);
+            MainViewport.Children.Add(DustField);
+
             PopulateStarMap();
 
-            // 2. HARD-OVERRIDE CLIPPING THRESHOLDS DIRECTLY ON THE ACTIVE CAMERA
-            // This stops Helix from rendering the Sun black when the camera gets close.
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                helixCamera.NearPlaneDistance = 0.0000001;
+                helixCamera.NearPlaneDistance = 0.00001;
                 helixCamera.FarPlaneDistance = 500.0;
+
+                // Initialize our tracker with the camera's starting location
+                lastCameraZ = helixCamera.Position.Z;
             }
 
-            // 3. Kick off your clean animation path down to 0.0045
-            AnimateCameraToSun();
+            InitializeDustField();
+            CompositionTarget.Rendering += OnRenderFrame;
+
+            AnimateCameraToSun(); // No matter how long or short this animation is, the loop handles it!
         }
         private void PopulateStarMap()
         {
@@ -60,7 +75,10 @@ namespace _3DstarChart
             List<Visual3D> toRemove = new List<Visual3D>();
             foreach (var child in MainViewport.Children)
             {
-                if (child is PointsVisual3D) toRemove.Add(child);
+                if (child is PointsVisual3D && child != DustField)
+                {
+                    toRemove.Add(child);
+                }
             }
             foreach (var oldLayer in toRemove) MainViewport.Children.Remove(oldLayer);
 
@@ -205,6 +223,67 @@ namespace _3DstarChart
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleXProperty, sunSwellAnimation);
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleYProperty, sunSwellAnimation);
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleZProperty, sunSwellAnimation);
+            }
+        }
+        private void InitializeDustField()
+        {
+            dustParticles = new Point3D[ParticleCount];
+            for (int i = 0; i < ParticleCount; i++)
+            {
+                // Scatter particles in a localized corridor along the camera's Z flight path
+                double x = (rand.NextDouble() - 0.5) * 30.0; // Width spread
+                double y = (rand.NextDouble() - 0.5) * 30.0; // Height spread
+                double z = rand.NextDouble() * 50.0;        // Spread out from Z = 0 to 50
+
+                dustParticles[i] = new Point3D(x, y, z);
+            }
+        }
+        private void OnRenderFrame(object sender, EventArgs e)
+        {
+            if (MainViewport.Camera is PerspectiveCamera helixCamera)
+            {
+                // 1. DYNAMIC STOP DETECTION (Runs only while the flag is still false)
+                if (!isAnimationFinished)
+                {
+                    double currentCameraZ = helixCamera.Position.Z;
+
+                    // If the camera position is identical to the last frame, the animation has halted!
+                    // (Using a tiny threshold to prevent floating point jitter issues)
+                    if (Math.Abs(currentCameraZ - lastCameraZ) < 0.00001)
+                    {
+                        isAnimationFinished = true;
+                    }
+                    else
+                    {
+                        // Still moving! Update our tracker and keep the dust hidden for this frame
+                        lastCameraZ = currentCameraZ;
+                        DustField.Points = new Point3DCollection();
+                        return;
+                    }
+                }
+
+                // 2. RUN DUST FIELD (Triggers instantly once the loop sets isAnimationFinished = true)
+                double speed = 0.15;
+                Point3DCollection updatedPoints = new Point3DCollection(ParticleCount);
+
+                for (int i = 0; i < ParticleCount; i++)
+                {
+                    double nextZ = dustParticles[i].Z + speed;
+
+                    if (nextZ > 42.0)
+                    {
+                        nextZ = 0.0;
+                        dustParticles[i] = new Point3D((rand.NextDouble() - 0.5) * 30.0, (rand.NextDouble() - 0.5) * 30.0, nextZ);
+                    }
+                    else
+                    {
+                        dustParticles[i] = new Point3D(dustParticles[i].X, dustParticles[i].Y, nextZ);
+                    }
+
+                    updatedPoints.Add(dustParticles[i]);
+                }
+
+                DustField.Points = updatedPoints;
             }
         }
     }
