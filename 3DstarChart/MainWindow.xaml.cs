@@ -34,10 +34,18 @@ namespace _3DstarChart
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            // Now that Helix is fully alive, configure the data map
+            // 1. Generate the scene layout (which forces an internal Helix layout reset)
             PopulateStarMap();
 
-            // Trigger the cinematic animation loop
+            // 2. HARD-OVERRIDE CLIPPING THRESHOLDS DIRECTLY ON THE ACTIVE CAMERA
+            // This stops Helix from rendering the Sun black when the camera gets close.
+            if (MainViewport.Camera is PerspectiveCamera helixCamera)
+            {
+                helixCamera.NearPlaneDistance = 0.0000001;
+                helixCamera.FarPlaneDistance = 500.0;
+            }
+
+            // 3. Kick off your clean animation path down to 0.0045
             AnimateCameraToSun();
         }
 
@@ -52,7 +60,7 @@ namespace _3DstarChart
             }
             foreach (var oldLayer in toRemove) MainViewport.Children.Remove(oldLayer);
 
-            var sunMesh = StarModelFactory.CreateStarCube(0, 0, 0, 0.4, Colors.Yellow);
+            var sunMesh = StarModelFactory.CreateStarCube(0, 0, 0, 0.01, Colors.Yellow);
             SunGroup.Children.Add(sunMesh);
 
             string filePath = "starchart.csv";
@@ -94,18 +102,37 @@ namespace _3DstarChart
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                // 1. Manually set conservative clipping overrides first
+                // 1. Lock in healthy clipping planes right before the flight begins
                 helixCamera.NearPlaneDistance = 0.001;
                 helixCamera.FarPlaneDistance = 1000.0;
 
-                // 2. Define our target destination coordinates right in front of the Sun
-                Point3D targetDestination = new Point3D(0, 0, 0.45);
+                // ==========================================
+                // ANIMATION A: Move the Camera Through the Stars
+                // ==========================================
+                Point3D startPosition = new Point3D(0, 0, 40);
+                Point3D endPosition = new Point3D(0, 0, 3.0); // Stop safely at 3 parsecs out
                 Vector3D lookDirection = new Vector3D(0, 0, -1);
                 Vector3D upDirection = new Vector3D(0, 1, 0);
 
-                // 3. Use Helix's native, high-performance animation framework.
-                // Parameters: (Target position, Look vector, Up vector, Animation duration in milliseconds)
-                MainViewport.Camera.LookAt(targetDestination, lookDirection, upDirection, 8000);
+                // Tell Helix to smoothly glide the camera over 8 seconds
+                MainViewport.Camera.LookAt(endPosition, lookDirection, upDirection, 8000);
+
+                // ==========================================
+                // ANIMATION B: Simultaneously Scale up the Sun Mesh
+                // ==========================================
+                // This swells the Sun mesh from 1.0x up to 40.0x size over the exact same 8 seconds
+                DoubleAnimation sunSwellAnimation = new DoubleAnimation
+                {
+                    From = 1.0,
+                    To = 40.0,
+                    Duration = new Duration(TimeSpan.FromSeconds(8)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+
+                // Fire the scale animations right alongside the camera movement
+                SunScale.BeginAnimation(ScaleTransform3D.ScaleXProperty, sunSwellAnimation);
+                SunScale.BeginAnimation(ScaleTransform3D.ScaleYProperty, sunSwellAnimation);
+                SunScale.BeginAnimation(ScaleTransform3D.ScaleZProperty, sunSwellAnimation);
             }
         }
     }
