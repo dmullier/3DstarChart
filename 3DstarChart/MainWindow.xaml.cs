@@ -30,9 +30,12 @@ namespace _3DstarChart
         private Star homeStar = null;
         private StarCollection masterChart = null;
         private TranslateTransform3D SunPositionTransform = new TranslateTransform3D(0, 0, 0);
-
-        // Track the exact camera destination point for our frame loop to check against
         private Point3D cameraTargetPosition;
+
+        // NEW GLOBAL HUD HANDLES FOR EXTRA METADATA ROWS
+        private TextBlock HudSpectralText;
+        private TextBlock HudCoordsText;
+        private TextBlock HudDetailText;
 
         public MainWindow()
         {
@@ -70,12 +73,33 @@ namespace _3DstarChart
 
             // DYNAMIC RETRO HUD INJECTION
             var hudStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(20), Width = 260 };
-            var systemBorder = new Border { BorderBrush = Brushes.Cyan, BorderThickness = new Thickness(2), Background = new SolidColorBrush(Color.FromArgb(128, 0, 0, 0)), Padding = new Thickness(10), Margin = new Thickness(0, 0, 0, 10) };
+            var systemBorder = new Border { BorderBrush = Brushes.Cyan, BorderThickness = new Thickness(2), Background = new SolidColorBrush(Color.FromArgb(128, 0, 0, 0)), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10) };
             var systemInnerStack = new StackPanel();
+
             systemInnerStack.Children.Add(new TextBlock { Text = "CURRENT SYSTEM", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold });
+
             string homeName = homeStar != null ? homeStar.Name.ToUpper() : "SOL";
-            CurrentSystemText = new TextBlock { Text = homeName, FontSize = 20, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) };
+            CurrentSystemText = new TextBlock { Text = homeName, FontSize = 22, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 8) };
             systemInnerStack.Children.Add(CurrentSystemText);
+
+            // Subtle HUD layout divider line
+            systemInnerStack.Children.Add(new Border { BorderBrush = Brushes.DarkCyan, BorderThickness = new Thickness(0, 0, 0, 1), Margin = new Thickness(0, 0, 0, 8) });
+
+            // Determine initial string readouts from the home system entry
+            string spectral = homeStar != null ? homeStar.SpectralType : "G2V";
+            string coords = homeStar != null ? $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}" : "X:0.00 Y:0.00 Z:0.00";
+            string details = homeStar != null ? $"CATALOG ID: {homeStar.Id:D4}" : "CLASSIFICATION: STAR";
+
+            // Allocate the dynamic elements to our global class fields
+            HudSpectralText = new TextBlock { Text = $"CLASS: {spectral}", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 2) };
+            HudCoordsText = new TextBlock { Text = coords, FontSize = 11, Foreground = Brushes.Yellow, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 2) };
+            HudDetailText = new TextBlock { Text = details, FontSize = 11, Foreground = Brushes.LightGray, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 0) };
+
+            // Inject them straight into the control stack
+            systemInnerStack.Children.Add(HudSpectralText);
+            systemInnerStack.Children.Add(HudCoordsText);
+            systemInnerStack.Children.Add(HudDetailText);
+
             systemBorder.Child = systemInnerStack;
             hudStack.Children.Add(systemBorder);
             hudStack.Children.Add(new TextBlock { Text = "CLOSEST NEIGHBORS:", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 0, 6) });
@@ -122,7 +146,6 @@ namespace _3DstarChart
 
             CompositionTarget.Rendering += OnRenderFrame;
         }
-
         private void PopulateStarMap()
         {
             if (masterChart == null) return;
@@ -137,20 +160,36 @@ namespace _3DstarChart
             }
             foreach (var oldLayer in toRemove) MainViewport.Children.Remove(oldLayer);
 
+            // =====================================================================
+            // DYNAMIC RETRO 'ELITE' RADIAL GLOW TEXTURE GENERATION
+            // =====================================================================
+            // 1. Fetch the true spectral system color for our active home star
+            Color systemStarColor = Colors.White; // Safe default fallback
+            if (homeStar != null)
+            {
+                systemStarColor = StarModelFactory.GetColourFromSpectrum(homeStar.SpectralType);
+            }
+
             var drawingVisual = new DrawingVisual();
             using (var drawingContext = drawingVisual.RenderOpen())
             {
                 var glowGradient = new RadialGradientBrush();
-                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.0));
-                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.60));
-                glowGradient.GradientStops.Add(new GradientStop(Color.FromArgb(160, 240, 240, 220), 0.75));
-                glowGradient.GradientStops.Add(new GradientStop(Colors.Transparent, 0.95));
+
+                // 2. Map the true system color stops directly onto our radial mask layers
+                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.0));       // Hot white fusion core
+                glowGradient.GradientStops.Add(new GradientStop(systemStarColor, 0.45));   // Core spectral body coloration
+
+                // Blend nicely out to a semi-transparent atmosphere aura
+                glowGradient.GradientStops.Add(new GradientStop(Color.FromArgb(160, systemStarColor.R, systemStarColor.G, systemStarColor.B), 0.70));
+                glowGradient.GradientStops.Add(new GradientStop(Colors.Transparent, 0.95)); // Outer void envelope
+
                 drawingContext.DrawRectangle(glowGradient, null, new Rect(0, 0, 512, 512));
             }
 
             var renderTargetBitmap = new RenderTargetBitmap(512, 512, 96, 96, PixelFormats.Pbgra32);
             renderTargetBitmap.Render(drawingVisual);
             var imageBrush = new ImageBrush(renderTargetBitmap);
+            // =====================================================================
 
             MeshGeometry3D quadMesh = new MeshGeometry3D();
             quadMesh.Positions.Add(new Point3D(-0.01, -0.01, 0));
@@ -289,6 +328,19 @@ namespace _3DstarChart
                 {
                     CurrentSystemText.Text = homeStar.Name.ToUpper();
                 }
+
+                // =====================================================================
+                // NEW: REWRITE HUD DATA STRINGS ON TRANSIT BEGIN
+                // =====================================================================
+                if (HudSpectralText != null)
+                    HudSpectralText.Text = $"CLASS: {homeStar.SpectralType}";
+
+                if (HudCoordsText != null)
+                    HudCoordsText.Text = $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}";
+
+                if (HudDetailText != null)
+                    HudDetailText.Text = $"CATALOG ID: {homeStar.Id:D4}";
+                // =====================================================================
 
                 if (NeighborsTextList != null)
                 {
