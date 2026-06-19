@@ -51,8 +51,10 @@ namespace _3DstarChart
 
         private void PopulateStarMap()
         {
+            // 1. Clear previous sun geometry content from the SunGroup container
             SunGroup.Children.Clear();
 
+            // 2. Clear out any background star layers added from previous runs
             List<Visual3D> toRemove = new List<Visual3D>();
             foreach (var child in MainViewport.Children)
             {
@@ -60,17 +62,68 @@ namespace _3DstarChart
             }
             foreach (var oldLayer in toRemove) MainViewport.Children.Remove(oldLayer);
 
-            var sunMesh = StarModelFactory.CreateStarCube(0, 0, 0, 0.01, Colors.Yellow);
-            SunGroup.Children.Add(sunMesh);
+            // =================================================================
+            // GENERATE THE RETRO 'ELITE' RADIAL GLOW TEXTURE
+            // =================================================================
+            var drawingVisual = new DrawingVisual();
+            using (var drawingContext = drawingVisual.RenderOpen())
+            {
+                // Define a sharp radial gradient to match the classic solid core and dithered edge
+                var glowGradient = new RadialGradientBrush();
+                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.0));       // Hot white core
+                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.60));      // Edge of solid mass
+                glowGradient.GradientStops.Add(new GradientStop(Color.FromArgb(160, 240, 240, 220), 0.75)); // Diffuse glow
+                glowGradient.GradientStops.Add(new GradientStop(Colors.Transparent, 0.95)); // Outer void boundary
 
+                // Render the brush into a flat 512x512 canvas square
+                drawingContext.DrawRectangle(glowGradient, null, new Rect(0, 0, 512, 512));
+            }
+
+            var renderTargetBitmap = new RenderTargetBitmap(512, 512, 96, 96, PixelFormats.Pbgra32);
+            renderTargetBitmap.Render(drawingVisual);
+            var imageBrush = new ImageBrush(renderTargetBitmap);
+
+            // =================================================================
+            // BUILD THE STANDARD FLAT 3D RECTANGLE (QUAD) FOR THE TEXTURE
+            // =================================================================
+            MeshGeometry3D quadMesh = new MeshGeometry3D();
+
+            // Add the 4 corner coordinates of our sun disk face (Base size: 0.2 units wide)
+            quadMesh.Positions.Add(new Point3D(-0.1, -0.1, 0)); // Bottom Left
+            quadMesh.Positions.Add(new Point3D(0.1, -0.1, 0));  // Bottom Right
+            quadMesh.Positions.Add(new Point3D(0.1, 0.1, 0));   // Top Right
+            quadMesh.Positions.Add(new Point3D(-0.1, 0.1, 0));  // Top Left
+
+            // Map the 2D texture coordinates onto those 3D corners smoothly
+            quadMesh.TextureCoordinates.Add(new Point(0, 1));
+            quadMesh.TextureCoordinates.Add(new Point(1, 1));
+            quadMesh.TextureCoordinates.Add(new Point(1, 0));
+            quadMesh.TextureCoordinates.Add(new Point(0, 0));
+
+            // Define the triangle layout sequence (two triangles make up the square)
+            quadMesh.TriangleIndices.Add(0); quadMesh.TriangleIndices.Add(1); quadMesh.TriangleIndices.Add(2);
+            quadMesh.TriangleIndices.Add(0); quadMesh.TriangleIndices.Add(2); quadMesh.TriangleIndices.Add(3);
+
+            // Wrap the texture around a native WPF DiffuseMaterial container
+            var sunMaterial = new DiffuseMaterial(imageBrush);
+            var sunModel = new GeometryModel3D(quadMesh, sunMaterial);
+
+            // Display on both sides so it doesn't vanish if your view angles rotate or shift
+            sunModel.BackMaterial = sunMaterial;
+
+            // Inject our new custom diffuse Sun model right into your existing SunGroup
+            SunGroup.Children.Add(sunModel);
+
+            // =================================================================
+            // LOAD DATA CATALOG & GROUP BY COLORS
+            // =================================================================
             string filePath = "starchart.csv";
             StarCollection chart = new StarCollection(filePath);
-
             Dictionary<Color, Point3DCollection> colorGroups = new Dictionary<Color, Point3DCollection>();
 
             foreach (Star star in chart.Stars)
             {
-                if (star.Id == 0) continue;
+                if (star.Id == 0) continue; // Skip Sun duplication
 
                 Color starColor = StarModelFactory.GetColourFromSpectrum(star.SpectralType);
 
@@ -82,22 +135,18 @@ namespace _3DstarChart
                 colorGroups[starColor].Add(new Point3D(star.X, star.Y, star.Z));
             }
 
+            // Inject a single constant-pixel layer for each active color bucket
             foreach (var kvp in colorGroups)
             {
-                Color layerColor = kvp.Key;
-                Point3DCollection layerPoints = kvp.Value;
-
                 PointsVisual3D starLayer = new PointsVisual3D
                 {
-                    Points = layerPoints,
-                    Color = layerColor,
-                    Size = 4
+                    Points = kvp.Value,
+                    Color = kvp.Key,
+                    Size = 4 // Keeps background stars locked to a constant screen-pixel scale
                 };
-
                 MainViewport.Children.Add(starLayer);
             }
         }
-
         private void AnimateCameraToSun()
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
@@ -110,7 +159,7 @@ namespace _3DstarChart
                 // ANIMATION A: Move the Camera Through the Stars
                 // ==========================================
                 Point3D startPosition = new Point3D(0, 0, 40);
-                Point3D endPosition = new Point3D(0, 0, 3.0); // Stop safely at 3 parsecs out
+                Point3D endPosition = new Point3D(0, 0, 10.0); // Stop safely at 3 parsecs out
                 Vector3D lookDirection = new Vector3D(0, 0, -1);
                 Vector3D upDirection = new Vector3D(0, 1, 0);
 
