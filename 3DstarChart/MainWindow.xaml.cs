@@ -89,10 +89,10 @@ namespace _3DstarChart
             MeshGeometry3D quadMesh = new MeshGeometry3D();
 
             // Add the 4 corner coordinates of our sun disk face (Base size: 0.2 units wide)
-            quadMesh.Positions.Add(new Point3D(-0.1, -0.1, 0)); // Bottom Left
-            quadMesh.Positions.Add(new Point3D(0.1, -0.1, 0));  // Bottom Right
-            quadMesh.Positions.Add(new Point3D(0.1, 0.1, 0));   // Top Right
-            quadMesh.Positions.Add(new Point3D(-0.1, 0.1, 0));  // Top Left
+            quadMesh.Positions.Add(new Point3D(-0.01, -0.01, 0)); // Bottom Left
+            quadMesh.Positions.Add(new Point3D(0.01, -0.01, 0));  // Bottom Right
+            quadMesh.Positions.Add(new Point3D(0.01, 0.01, 0));   // Top Right
+            quadMesh.Positions.Add(new Point3D(-0.01, 0.01, 0));  // Top Left
 
             // Map the 2D texture coordinates onto those 3D corners smoothly
             quadMesh.TextureCoordinates.Add(new Point(0, 1));
@@ -152,7 +152,7 @@ namespace _3DstarChart
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
                 // 1. Lock in healthy clipping planes right before the flight begins
-                helixCamera.NearPlaneDistance = 0.001;
+                helixCamera.NearPlaneDistance = 0.0001;
                 helixCamera.FarPlaneDistance = 1000.0;
 
                 // ==========================================
