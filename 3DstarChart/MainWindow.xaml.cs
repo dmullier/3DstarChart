@@ -19,14 +19,17 @@ namespace _3DstarChart
 {
     public partial class MainWindow : Window
     {
-        // 1. Declare the layers as class fields instead of XAML names
         private ModelVisual3D TextContainer;
         private PointsVisual3D DustField;
+        private TextBlock CurrentSystemText;
+        private ItemsControl NeighborsTextList;
         private bool isAnimationFinished = false;
         private Point3D[] dustParticles;
         private const int ParticleCount = 800;
         private double lastCameraZ = -1.0;
         private Random rand = new Random();
+        private Star homeStar = null;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -47,22 +50,93 @@ namespace _3DstarChart
             MainViewport.Children.Add(TextContainer);
             MainViewport.Children.Add(DustField);
 
+            // 1. RUN DATA CATALOG LOADER FIRST so homeStar and neighbor list data exist
             PopulateStarMap();
 
+            // 2. DYNAMIC RETRO HUD INJECTION (Now safely consumes data parsed above)
+            var hudStack = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(20),
+                Width = 260
+            };
+
+            var systemBorder = new Border
+            {
+                BorderBrush = Brushes.Cyan,
+                BorderThickness = new Thickness(2),
+                Background = new SolidColorBrush(Color.FromArgb(128, 0, 0, 0)),
+                Padding = new Thickness(10),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            var systemInnerStack = new StackPanel();
+            systemInnerStack.Children.Add(new TextBlock { Text = "CURRENT SYSTEM", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold });
+
+            // Read directly from the loaded home star or default to SOL
+            string homeName = homeStar != null ? homeStar.Name.ToUpper() : "SOL";
+            CurrentSystemText = new TextBlock { Text = homeName, FontSize = 20, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) };
+            systemInnerStack.Children.Add(CurrentSystemText);
+            systemBorder.Child = systemInnerStack;
+            hudStack.Children.Add(systemBorder);
+
+            hudStack.Children.Add(new TextBlock { Text = "CLOSEST NEIGHBORS:", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 0, 6) });
+
+            NeighborsTextList = new ItemsControl();
+
+            var rowTemplate = new DataTemplate();
+            var borderFactory = new FrameworkElementFactory(typeof(Border));
+            borderFactory.SetValue(Border.BorderBrushProperty, Brushes.Cyan);
+            borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            borderFactory.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(80, 0, 0, 0)));
+            borderFactory.SetValue(Border.PaddingProperty, new Thickness(8, 6, 8, 6));
+            borderFactory.SetValue(Border.MarginProperty, new Thickness(0, 0, 0, 6));
+
+            var gridFactory = new FrameworkElementFactory(typeof(Grid));
+
+            var nameFactory = new FrameworkElementFactory(typeof(TextBlock));
+            nameFactory.SetBinding(TextBlock.TextProperty, new Binding("Name"));
+            nameFactory.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+            nameFactory.SetValue(TextBlock.ForegroundProperty, Brushes.White);
+            nameFactory.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
+            nameFactory.SetValue(TextBlock.FontSizeProperty, 13.0);
+            nameFactory.SetValue(TextBlock.FontWeightProperty, FontWeights.Bold);
+
+            var distFactory = new FrameworkElementFactory(typeof(TextBlock));
+            distFactory.SetBinding(TextBlock.TextProperty, new Binding("DistanceString"));
+            distFactory.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Right);
+            distFactory.SetValue(TextBlock.ForegroundProperty, Brushes.Yellow);
+            distFactory.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
+            distFactory.SetValue(TextBlock.FontSizeProperty, 13.0);
+
+            gridFactory.AppendChild(nameFactory);
+            gridFactory.AppendChild(distFactory);
+            borderFactory.AppendChild(gridFactory);
+            rowTemplate.VisualTree = borderFactory;
+
+            NeighborsTextList.ItemTemplate = rowTemplate;
+            hudStack.Children.Add(NeighborsTextList);
+
+            if (MainViewport.Parent is Grid rootGrid)
+            {
+                rootGrid.Children.Add(hudStack);
+            }
+
+            // 3. Initialize Core Animation Mechanics
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
                 helixCamera.NearPlaneDistance = 0.00001;
                 helixCamera.FarPlaneDistance = 500.0;
-
-                // Initialize our tracker with the camera's starting location
                 lastCameraZ = helixCamera.Position.Z;
             }
 
             InitializeDustField();
             CompositionTarget.Rendering += OnRenderFrame;
 
-            AnimateCameraToSun(); // No matter how long or short this animation is, the loop handles it!
+            // Run the updated dynamic path animation
+            AnimateCameraToSun();
         }
+
         private void PopulateStarMap()
         {
             // 1. Clear previous sun geometry content from the SunGroup container
@@ -88,14 +162,12 @@ namespace _3DstarChart
             var drawingVisual = new DrawingVisual();
             using (var drawingContext = drawingVisual.RenderOpen())
             {
-                // Define a sharp radial gradient to match the classic solid core and dithered edge
                 var glowGradient = new RadialGradientBrush();
-                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.0));       // Hot white core
-                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.60));      // Edge of solid mass
-                glowGradient.GradientStops.Add(new GradientStop(Color.FromArgb(160, 240, 240, 220), 0.75)); // Diffuse glow
-                glowGradient.GradientStops.Add(new GradientStop(Colors.Transparent, 0.95)); // Outer void boundary
+                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.0));
+                glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.60));
+                glowGradient.GradientStops.Add(new GradientStop(Color.FromArgb(160, 240, 240, 220), 0.75));
+                glowGradient.GradientStops.Add(new GradientStop(Colors.Transparent, 0.95));
 
-                // Render the brush into a flat 512x512 canvas square
                 drawingContext.DrawRectangle(glowGradient, null, new Rect(0, 0, 512, 512));
             }
 
@@ -107,82 +179,92 @@ namespace _3DstarChart
             // BUILD THE STANDARD FLAT 3D RECTANGLE (QUAD) FOR THE TEXTURE
             // =================================================================
             MeshGeometry3D quadMesh = new MeshGeometry3D();
+            quadMesh.Positions.Add(new Point3D(-0.01, -0.01, 0));
+            quadMesh.Positions.Add(new Point3D(0.01, -0.01, 0));
+            quadMesh.Positions.Add(new Point3D(0.01, 0.01, 0));
+            quadMesh.Positions.Add(new Point3D(-0.01, 0.01, 0));
 
-            // Add the 4 corner coordinates of our sun disk face (Base size: 0.02 units wide)
-            quadMesh.Positions.Add(new Point3D(-0.01, -0.01, 0)); // Bottom Left
-            quadMesh.Positions.Add(new Point3D(0.01, -0.01, 0));  // Bottom Right
-            quadMesh.Positions.Add(new Point3D(0.01, 0.01, 0));   // Top Right
-            quadMesh.Positions.Add(new Point3D(-0.01, 0.01, 0));  // Top Left
-
-            // Map the 2D texture coordinates onto those 3D corners smoothly
             quadMesh.TextureCoordinates.Add(new Point(0, 1));
             quadMesh.TextureCoordinates.Add(new Point(1, 1));
             quadMesh.TextureCoordinates.Add(new Point(1, 0));
             quadMesh.TextureCoordinates.Add(new Point(0, 0));
 
-            // Define the triangle layout sequence (two triangles make up the square)
             quadMesh.TriangleIndices.Add(0); quadMesh.TriangleIndices.Add(1); quadMesh.TriangleIndices.Add(2);
             quadMesh.TriangleIndices.Add(0); quadMesh.TriangleIndices.Add(2); quadMesh.TriangleIndices.Add(3);
 
-            // Wrap the texture around a native WPF DiffuseMaterial container
             var sunMaterial = new DiffuseMaterial(imageBrush);
             var sunModel = new GeometryModel3D(quadMesh, sunMaterial);
-
-            // Display on both sides so it doesn't vanish if your view angles rotate or shift
             sunModel.BackMaterial = sunMaterial;
-
-            // Inject our new custom diffuse Sun model right into your existing SunGroup
             SunGroup.Children.Add(sunModel);
 
             // =================================================================
-            // LOAD DATA CATALOG, GROUP BY COLORS & GENERATE LABELS
+            // LOAD DATA CATALOG, GROUP BY COLORS & GENERATE NEIGHBOR CALCULATIONS
             // =================================================================
             string filePath = "starchart.csv";
             StarCollection chart = new StarCollection(filePath);
             Dictionary<Color, Point3DCollection> colorGroups = new Dictionary<Color, Point3DCollection>();
+            List<StarNeighborDisplay> neighborList = new List<StarNeighborDisplay>();
+
+            // Capture the home star base reference from first entry row
+            if (chart.Stars != null && chart.Stars.Count > 0)
+            {
+                homeStar = chart.Stars[0];
+            }
 
             foreach (Star star in chart.Stars)
             {
-                if (star.Id == 0) continue; // Skip Sun duplication
+                if (homeStar != null && star.Id == homeStar.Id) continue;
 
-                // A. Sort positions into color buckets for high-performance rendering
                 Color starColor = StarModelFactory.GetColourFromSpectrum(star.SpectralType);
 
                 if (!colorGroups.ContainsKey(starColor))
                 {
                     colorGroups[starColor] = new Point3DCollection();
                 }
-
                 colorGroups[starColor].Add(new Point3D(star.X, star.Y, star.Z));
 
-                // B. Calculate distance from Sun (0,0,0) to filter labels for smooth FPS
-                double distance = Math.Sqrt(star.X * star.X + star.Y * star.Y + star.Z * star.Z);
+                // MATH: Track relative distance calculation from home system coordinates
+                double dx = star.X - (homeStar?.X ?? 0);
+                double dy = star.Y - (homeStar?.Y ?? 0);
+                double dz = star.Z - (homeStar?.Z ?? 0);
+                double distanceToHome = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
-                // Change '15.0' here if you want a wider or narrower naming bubble
-                if (distance < 15.0)
+                neighborList.Add(new StarNeighborDisplay { Name = star.Name, Distance = distanceToHome });
+
+                if (distanceToHome < 15.0)
                 {
                     var starLabel = new TextVisual3D
                     {
                         Text = star.Name,
-                        Position = new Point3D(star.X + 0.15, star.Y + 0.15, star.Z), // Shift slightly right/up from the star point
-                        Height = 0.18,              // Size of font geometry in 3D scene space
-                        Foreground = Brushes.Cyan,   // Retro neon hud text color
+                        Position = new Point3D(star.X + 0.15, star.Y + 0.15, star.Z),
+                        Height = 0.18,
+                        Foreground = Brushes.Cyan,
                         HorizontalAlignment = HorizontalAlignment.Left,
                         VerticalAlignment = VerticalAlignment.Center
                     };
-
                     TextContainer.Children.Add(starLabel);
                 }
             }
 
-            // Inject a single constant-pixel layer for each active color bucket
+            // Sort list elements ascending by proximity value metrics
+            neighborList.Sort((s1, s2) => s1.Distance.CompareTo(s2.Distance));
+
+            List<StarNeighborDisplay> top5Closest = new List<StarNeighborDisplay>();
+            for (int i = 0; i < Math.Min(5, neighborList.Count); i++)
+            {
+                top5Closest.Add(neighborList[i]);
+            }
+
+            // Stash sorted list inside window storage resource key bounds
+            this.Resources["CachedNeighbors"] = top5Closest;
+
             foreach (var kvp in colorGroups)
             {
                 PointsVisual3D starLayer = new PointsVisual3D
                 {
                     Points = kvp.Value,
                     Color = kvp.Key,
-                    Size = 4 // Keeps background stars locked to a constant screen-pixel scale
+                    Size = 4
                 };
                 MainViewport.Children.Add(starLayer);
             }
@@ -192,25 +274,26 @@ namespace _3DstarChart
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                // 1. Lock in healthy clipping planes right before the flight begins
                 helixCamera.NearPlaneDistance = 0.0001;
                 helixCamera.FarPlaneDistance = 1000.0;
 
-                // ==========================================
-                // ANIMATION A: Move the Camera Through the Stars
-                // ==========================================
-                Point3D startPosition = new Point3D(0, 0, 40);
-                Point3D endPosition = new Point3D(0, 0, 10.0); // Stop safely at 3 parsecs out
+                double targetX = 0;
+                double targetY = 0;
+                double targetZ = 10.0;
+
+                if (homeStar != null)
+                {
+                    targetX = homeStar.X;
+                    targetY = homeStar.Y;
+                    targetZ = homeStar.Z + 10.0; // Stop safely 10 units away from home system coordinates
+                }
+
+                Point3D endPosition = new Point3D(targetX, targetY, targetZ);
                 Vector3D lookDirection = new Vector3D(0, 0, -1);
                 Vector3D upDirection = new Vector3D(0, 1, 0);
 
-                // Tell Helix to smoothly glide the camera over 8 seconds
                 MainViewport.Camera.LookAt(endPosition, lookDirection, upDirection, 8000);
 
-                // ==========================================
-                // ANIMATION B: Simultaneously Scale up the Sun Mesh
-                // ==========================================
-                // This swells the Sun mesh from 1.0x up to 40.0x size over the exact same 8 seconds
                 DoubleAnimation sunSwellAnimation = new DoubleAnimation
                 {
                     From = 1.0,
@@ -219,50 +302,51 @@ namespace _3DstarChart
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                 };
 
-                // Fire the scale animations right alongside the camera movement
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleXProperty, sunSwellAnimation);
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleYProperty, sunSwellAnimation);
                 SunScale.BeginAnimation(ScaleTransform3D.ScaleZProperty, sunSwellAnimation);
             }
         }
+
         private void InitializeDustField()
         {
             dustParticles = new Point3D[ParticleCount];
             for (int i = 0; i < ParticleCount; i++)
             {
-                // Scatter particles in a localized corridor along the camera's Z flight path
-                double x = (rand.NextDouble() - 0.5) * 30.0; // Width spread
-                double y = (rand.NextDouble() - 0.5) * 30.0; // Height spread
-                double z = rand.NextDouble() * 50.0;        // Spread out from Z = 0 to 50
+                double x = (rand.NextDouble() - 0.5) * 30.0;
+                double y = (rand.NextDouble() - 0.5) * 30.0;
+                double z = rand.NextDouble() * 40.0;
 
                 dustParticles[i] = new Point3D(x, y, z);
             }
         }
+
         private void OnRenderFrame(object sender, EventArgs e)
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                // 1. DYNAMIC STOP DETECTION (Runs only while the flag is still false)
                 if (!isAnimationFinished)
                 {
                     double currentCameraZ = helixCamera.Position.Z;
 
-                    // If the camera position is identical to the last frame, the animation has halted!
-                    // (Using a tiny threshold to prevent floating point jitter issues)
                     if (Math.Abs(currentCameraZ - lastCameraZ) < 0.00001)
                     {
                         isAnimationFinished = true;
+
+                        // Populate neighbors template source smoothly when animation halts
+                        if (this.Resources["CachedNeighbors"] is List<StarNeighborDisplay> cachedData)
+                        {
+                            NeighborsTextList.ItemsSource = cachedData;
+                        }
                     }
                     else
                     {
-                        // Still moving! Update our tracker and keep the dust hidden for this frame
                         lastCameraZ = currentCameraZ;
                         DustField.Points = new Point3DCollection();
                         return;
                     }
                 }
 
-                // 2. RUN DUST FIELD (Triggers instantly once the loop sets isAnimationFinished = true)
                 double speed = 0.15;
                 Point3DCollection updatedPoints = new Point3DCollection(ParticleCount);
 
@@ -286,5 +370,12 @@ namespace _3DstarChart
                 DustField.Points = updatedPoints;
             }
         }
+    }
+
+    public class StarNeighborDisplay
+    {
+        public string Name { get; set; }
+        public double Distance { get; set; }
+        public string DistanceString => $"{Distance:F2} ly";
     }
 }
