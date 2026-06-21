@@ -49,7 +49,8 @@ namespace _3DstarChart
         private Star homeStar = null;
         private StarCollection masterChart = null;
 
-        private TranslateTransform3D SunPositionTransform = new TranslateTransform3D(0, 0, 0);
+        // REFACTORED: Renamed from SunPositionTransform to better represent global system translations
+        private TranslateTransform3D SystemPositionTransform = new TranslateTransform3D(0, 0, 0);
         private Point3D cameraTargetPosition;
 
         private TextBlock HudSpectralText;
@@ -83,11 +84,11 @@ namespace _3DstarChart
             MainViewport.Children.Add(TextContainer);
             MainViewport.Children.Add(DustField);
 
-            // Bind persistent structural scaling and translating animations straight to the XAML target group
+            // Bind persistent structural scaling and translating animations straight to the local system container
             var stableGroup = new Transform3DGroup();
-            stableGroup.Children.Add(SunScale);
-            stableGroup.Children.Add(SunPositionTransform);
-            SunGroup.Transform = stableGroup;
+            stableGroup.Children.Add(SystemScaleTransform); // Maps to x:Name in XAML
+            stableGroup.Children.Add(SystemPositionTransform);
+            LocalSystemGroup.Transform = stableGroup;       // Maps to x:Name in XAML
 
             string filePath = "starchart.csv";
             masterChart = new StarCollection(filePath);
@@ -205,17 +206,17 @@ namespace _3DstarChart
         }
 
         // =====================================================================
-        // GRAPHICS RENDERING & STAR GENERATION
+        // GRAPHICS RENDERING & SYSTEM POPULATION
         // =====================================================================
         /// <summary>
         /// Clears out the dynamic scene graph entities and rebuilds the ambient background starfield.
-        /// Draws a vector glow sprite surface for the active target destination star.
+        /// Draws a vector glow sprite surface for the active system primary body inside LocalSystemGroup.
         /// </summary>
         private void PopulateStarMap()
         {
             if (masterChart == null) return;
 
-            SunGroup.Children.Clear();
+            LocalSystemGroup.Children.Clear();
             TextContainer.Children.Clear();
 
             // Clear old background points layers safely from the viewport scene tree
@@ -267,7 +268,7 @@ namespace _3DstarChart
             var sunModel = new GeometryModel3D(quadMesh, sunMaterial);
             sunModel.BackMaterial = sunMaterial;
 
-            SunGroup.Children.Add(sunModel);
+            LocalSystemGroup.Children.Add(sunModel);
 
             Dictionary<Color, Point3DCollection> colorGroups = new Dictionary<Color, Point3DCollection>();
             List<StarNeighborDisplay> neighborList = new List<StarNeighborDisplay>();
@@ -332,7 +333,7 @@ namespace _3DstarChart
         // =====================================================================
         /// <summary>
         /// Fires a coordinated hyperspace transition animation sequence. Flies the camera approach
-        /// vector towards the destination, while scaling up the sun model's geometric dimensions.
+        /// vector towards the destination, while scaling up the local framework's geometric dimensions.
         /// </summary>
         private void AnimateToStar()
         {
@@ -348,9 +349,9 @@ namespace _3DstarChart
                 }
 
                 // Snap the visual position transform layout straight to the target system coordinates
-                SunPositionTransform.OffsetX = targetX;
-                SunPositionTransform.OffsetY = targetY;
-                SunPositionTransform.OffsetZ = targetZ;
+                SystemPositionTransform.OffsetX = targetX;
+                SystemPositionTransform.OffsetY = targetY;
+                SystemPositionTransform.OffsetZ = targetZ;
 
                 Vector3D lookDirection = new Vector3D(0, 0, -1);
                 Vector3D upDirection = new Vector3D(0, 1, 0);
@@ -362,11 +363,11 @@ namespace _3DstarChart
                 helixCamera.UpDirection = upDirection;
 
                 // Strip old active storyboard loops to clean property state variables completely
-                SunScale.BeginAnimation(ScaleTransform3D.ScaleXProperty, null);
-                SunScale.BeginAnimation(ScaleTransform3D.ScaleYProperty, null);
-                SunScale.BeginAnimation(ScaleTransform3D.ScaleZProperty, null);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleXProperty, null);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleYProperty, null);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleZProperty, null);
 
-                SunScale.ScaleX = 1.0; SunScale.ScaleY = 1.0; SunScale.ScaleZ = 1.0;
+                SystemScaleTransform.ScaleX = 1.0; SystemScaleTransform.ScaleY = 1.0; SystemScaleTransform.ScaleZ = 1.0;
 
                 Point3DAnimation cameraFlight = new Point3DAnimation
                 {
@@ -397,9 +398,9 @@ namespace _3DstarChart
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                 };
 
-                SunScale.BeginAnimation(ScaleTransform3D.ScaleXProperty, sunSwellAnimation);
-                SunScale.BeginAnimation(ScaleTransform3D.ScaleYProperty, sunSwellAnimation);
-                SunScale.BeginAnimation(ScaleTransform3D.ScaleZProperty, sunSwellAnimation);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleXProperty, sunSwellAnimation);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleYProperty, sunSwellAnimation);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleZProperty, sunSwellAnimation);
             }
         }
 

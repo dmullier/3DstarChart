@@ -21,9 +21,9 @@
 
             <ModelVisual3D>
                 <ModelVisual3D.Content>
-                    <Model3DGroup x:Name="SunGroup">
+                    <Model3DGroup x:Name="LocalSystemGroup">
                         <Model3DGroup.Transform>
-                            <ScaleTransform3D x:Name="SunScale" ScaleX="1" ScaleY="1" ScaleZ="1" />
+                            <ScaleTransform3D x:Name="SystemScaleTransform" ScaleX="1" ScaleY="1" ScaleZ="1" />
                         </Model3DGroup.Transform>
                     </Model3DGroup>
                 </ModelVisual3D.Content>
