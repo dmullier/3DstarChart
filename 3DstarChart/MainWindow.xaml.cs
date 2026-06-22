@@ -106,7 +106,8 @@ namespace _3DstarChart
             var systemInnerStack = new StackPanel();
 
             systemInnerStack.Children.Add(new TextBlock { Text = "CURRENT SYSTEM", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold });
-            string homeName = homeStar != null ? homeStar.Name.ToUpper() : "SOL";
+            // If the file is valid, it reads the true first star name. Otherwise, it reports an empty data set.
+            string homeName = homeStar != null ? homeStar.Name.ToUpper() : "UNKNOWN SYSTEM / NO DATA";
             CurrentSystemText = new TextBlock { Text = homeName, FontSize = 22, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 8) };
             systemInnerStack.Children.Add(CurrentSystemText);
             systemInnerStack.Children.Add(new Border { BorderBrush = Brushes.DarkCyan, BorderThickness = new Thickness(0, 0, 0, 1), Margin = new Thickness(0, 0, 0, 8) });

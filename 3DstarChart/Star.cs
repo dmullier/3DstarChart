@@ -1,6 +1,4 @@
-﻿
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace _3DstarMap
@@ -15,6 +13,16 @@ namespace _3DstarMap
         public double Z { get; set; }
         public double Magnitude { get; set; }
         public string SpectralType { get; set; }
+
+        // EXTRACED PROPERTIES
+        public int PrimaryComponent { get; set; }
+        public double AbsoluteMagnitude { get; set; }
+        public double Luminosity { get; set; }
+        public double ColourIndex { get; set; }
+
+        // NEW PROPERTY
+        public string Constellation { get; set; }
+
         /// <summary>
         /// Represents a star with its properties.
         /// </summary>
@@ -59,7 +67,33 @@ namespace _3DstarMap
             /// Spectral type of the star (e.g., O, B, A, F, G, K, M).
             /// </summary>
             SpectralType = "";
+
+            /// <summary>
+            /// ID of the primary star component if part of a multi-star system.
+            /// </summary>
+            PrimaryComponent = 0;
+
+            /// <summary>
+            /// The intrinsic brightness of the star as seen from a fixed distance of 10 parsecs.
+            /// </summary>
+            AbsoluteMagnitude = 0.0;
+
+            /// <summary>
+            /// Total energy output of the star relative to our Sun.
+            /// </summary>
+            Luminosity = 0.0;
+
+            /// <summary>
+            /// Numerical color metric (B-V value) indicating star temperature profiles.
+            /// </summary>
+            ColourIndex = 0.0;
+
+            /// <summary>
+            /// Three-letter abbreviation or full name of the astronomical constellation the star resides in.
+            /// </summary>
+            Constellation = "";
         }
+
         /// <summary>
         /// Sets the ID of this object.
         /// </summary>
@@ -68,6 +102,7 @@ namespace _3DstarMap
         {
             Id = id;
         }
+
         /// <summary>
         /// Sets the NAME property.
         /// </summary>
@@ -76,6 +111,7 @@ namespace _3DstarMap
         {
             Name = name;
         }
+
         /// <summary>
         /// Sets the distance.
         /// </summary>
@@ -84,6 +120,7 @@ namespace _3DstarMap
         {
             Distance = distance;
         }
+
         /// <summary>
         /// Sets the value of X.
         /// </summary>
@@ -92,6 +129,7 @@ namespace _3DstarMap
         {
             X = x;
         }
+
         /// <summary>
         /// Sets the Y-coordinate of an object.
         /// </summary>
@@ -100,6 +138,7 @@ namespace _3DstarMap
         {
             Y = y;
         }
+
         /// <summary>
         /// Sets the value of Z.
         /// </summary>
@@ -108,6 +147,7 @@ namespace _3DstarMap
         {
             Z = z;
         }
+
         /// <summary>
         /// Sets the magnitude value.
         /// </summary>
@@ -120,6 +160,34 @@ namespace _3DstarMap
         public void SetSPECT(string spect)
         {
             SpectralType = spect;
+        }
+
+        public void SetPrimaryComponent(int primaryComponent)
+        {
+            PrimaryComponent = primaryComponent;
+        }
+
+        public void SetAbsoluteMagnitude(double absoluteMagnitude)
+        {
+            AbsoluteMagnitude = absoluteMagnitude;
+        }
+
+        public void SetLuminosity(double luminosity)
+        {
+            Luminosity = luminosity;
+        }
+
+        public void SetColourIndex(double colourIndex)
+        {
+            ColourIndex = colourIndex;
+        }
+        /// <summary>
+        /// Sets the constellation designation.
+        /// </summary>
+        /// <param name="constellation">The constellation string name or abbreviation.</param>
+        public void SetConstellation(string constellation)
+        {
+            Constellation = constellation;
         }
     }
 }
