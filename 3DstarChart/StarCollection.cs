@@ -10,10 +10,11 @@ namespace _3DstarMap
     /// </summary>
     public class StarCollection
     {
+        private Dictionary<int, List<int>> _systemLookup = new Dictionary<int, List<int>>();
         public List<Star> Stars { get; set; } = new List<Star>();
 
         // Constellations mapped to their full Latin Genitives to resolve naming grammars accurately
-        private readonly Dictionary<string, string> ConstellationGenitives = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        private readonly Dictionary<string, string> ConstellationNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             { "And", "Andomedae" }, { "Ant", "Antliae" }, { "Aps", "Apodis" }, { "Aqr", "Aquarii" },
             { "Aql", "Aquilae" }, { "Ara", "Arae" }, { "Ari", "Arietis" }, { "Aur", "Aurigae" },
@@ -62,6 +63,7 @@ namespace _3DstarMap
 
             string[] lines = File.ReadAllLines(filePath);
 
+            // FIRST PASS: Read the raw fields and populate the dictionary fully
             foreach (string line in lines)
             {
                 string[] values = line.Split(',');
@@ -82,11 +84,12 @@ namespace _3DstarMap
                         Magnitude = double.TryParse(values[13], out double m) ? m : 0.0,
                         AbsoluteMagnitude = double.TryParse(values[14], out double absMag) ? absMag : 0.0,
                         ColourIndex = double.TryParse(values[16], out double ci) ? ci : 0.0,
-                        PrimaryComponent = int.TryParse(values[31], out int compPrimary) ? compPrimary : idNum,
                         Luminosity = double.TryParse(values[33], out double lum) ? lum : 0.0,
                         Constellation = values.Length > 29 ? values[29]?.Trim() : "",
 
-                        // Parse new datafields directly from their column positions
+                        PrimaryComponent = int.TryParse(values[31], out int compPrimary) ? compPrimary : idNum,
+                        BaseSystemId = values.Length > 32 ? values[32]?.Trim() : "",
+
                         Hip = int.TryParse(values[1], out int hipId) ? hipId : 0,
                         Hd = int.TryParse(values[2], out int hdId) ? hdId : 0,
                         Gliese = values[4]?.Trim() ?? "",
@@ -94,7 +97,17 @@ namespace _3DstarMap
                         Flam = values[28]?.Trim() ?? ""
                     };
 
-                    // Engine to automatically resolve missing names cleanly from extracted fields
+                    // Build the lookup structure completely first
+                    if (!_systemLookup.ContainsKey(star.PrimaryComponent))
+                    {
+                        _systemLookup[star.PrimaryComponent] = new List<int>();
+                    }
+                    _systemLookup[star.PrimaryComponent].Add(star.Id);
+
+                    // Replace three-letter code with full name
+                    string fullConstellationName = ConstellationNames.GetValueOrDefault(star.Constellation, "Unknown Constellation");
+                    star.Constellation = fullConstellationName;
+
                     if (string.IsNullOrWhiteSpace(star.Name))
                     {
                         star.Name = ResolveMissingStarName(star);
@@ -103,11 +116,25 @@ namespace _3DstarMap
                     Stars.Add(star);
                 }
             }
-        }
 
+            // SECOND PASS: Now that the dictionary is complete, map out the relationships
+            foreach (Star star in Stars)
+            {
+                star.CompanionStars = GetSystemStarIds(star);
+
+                if (star.CompanionStars != null && star.CompanionStars.Length > 0)
+                {
+                    star.HasCompanions = true;
+                }
+                else
+                {
+                    star.HasCompanions = false;
+                }
+            }
+        }
         private string ResolveMissingStarName(Star star)
         {
-            string baseConstellation = ConstellationGenitives.TryGetValue(star.Constellation, out var genitive)
+            string baseConstellation = ConstellationNames.TryGetValue(star.Constellation, out var genitive)
                 ? genitive
                 : star.Constellation;
 
@@ -146,6 +173,49 @@ namespace _3DstarMap
 
             // 5. Ultimate fallback if completely anonymous
             return $"HYG {star.Id}";
+        }
+
+        /// <summary>
+        /// Return array of IDs of any companions stars to the current star, null if none.
+        /// </summary>
+        /// <param name="star">star.cs</param>
+        /// <returns>int array of companion star ids</returns>
+        public int[] GetSystemStarIds(Star star)
+        {
+            // 1. If the input star is null, return null immediately
+            if (star == null)
+            {
+                return null;
+            }
+
+            // 2. Check if our high-speed dictionary contains this system's PrimaryComponent
+            if (_systemLookup.TryGetValue(star.PrimaryComponent, out List<int> allSystemIds))
+            {
+                // 3. If the system only has 1 star, it's a single star. 
+                // Per your requirement, we return null because there are "none" (no companions).
+                if (allSystemIds.Count <= 1)
+                {
+                    return null;
+                }
+
+                List<int> companionIds = new List<int>();
+
+                // 4. Loop ONLY through the stars inside this specific system
+                foreach (int id in allSystemIds)
+                {
+                    // 5. If the ID belongs to a companion and is not the star itself, add it
+                    if (id != star.Id)
+                    {
+                        companionIds.Add(id);
+                    }
+                }
+
+                // 6. Return the array of companion IDs
+                return companionIds.ToArray();
+            }
+
+            // 7. Fallback safety if the ID wasn't found in the dictionary index
+            return null;
         }
 
         public List<Star> GetStars()

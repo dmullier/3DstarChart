@@ -46,7 +46,8 @@ namespace _3DstarChart
         private bool isAnimationFinished = false;
         private Point3D[] dustParticles;
         private Random rand = new Random();
-        private Star homeStar = null;
+        private Star homeStar;
+        private int StartStarID = 7736;//8087; //catalogue id of starting star
         private StarCollection masterChart = null;
 
         // REFACTORED: Renamed from SunPositionTransform to better represent global system translations
@@ -95,9 +96,9 @@ namespace _3DstarChart
 
             if (masterChart.Stars != null && masterChart.Stars.Count > 0)
             {
-                homeStar = masterChart.Stars[0];
+                //homeStar = masterChart.Stars[0];
                 // DEBUG LOOKUP: Target the exact unique row ID for Tau Ceti
-                ///homeStar = masterChart.Stars.FirstOrDefault(s => s.Id == 8087);
+                homeStar = masterChart.Stars.FirstOrDefault(s => s.Id == StartStarID);// 8087);
             }
             // Find Tau Ceti by its formatted name string, falling back to the first star if missing
            

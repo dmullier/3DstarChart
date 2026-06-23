@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 namespace _3DstarMap
 {
+    /// <summary>
+    /// Star from Hubble Yale Gliese (HYG) Database, representing a star with its properties.
+    /// </summary>
     public class Star
     {
         public int Id { get; set; }
@@ -13,23 +16,30 @@ namespace _3DstarMap
         public double Z { get; set; }
         public double Magnitude { get; set; }
         public string SpectralType { get; set; }
-
-        // EXTRACTED PROPERTIES
+     
+        public string BaseSystemId { get; set; } 
         public int PrimaryComponent { get; set; }
         public double AbsoluteMagnitude { get; set; }
         public double Luminosity { get; set; }
         public double ColourIndex { get; set; }
         public string Constellation { get; set; }
 
-        // NEW DATAFIELDS FOR SPECIFIC CATALOG DESIGNATIONS
         public string Bayer { get; set; }
         public string Flam { get; set; }
         public string Gliese { get; set; }
         public int Hd { get; set; }
         public int Hip { get; set; }
+        /// <summary>
+        /// Used to set and detrrmine if a star is part of a multi-star system
+        /// </summary>
+        public Boolean HasCompanions { get; set; } = false;
+        /// <summary>
+        /// IDs of any companion stars, null array if none exist. This is used to represent binary or multiple star systems.
+        /// </summary>
+        public int[] CompanionStars { get; set; } = Array.Empty<int>();
 
         /// <summary>
-        /// Represents a star with its properties.
+        /// Constructor to generate blank star.
         /// </summary>
         public Star()
         {
@@ -42,6 +52,7 @@ namespace _3DstarMap
             Magnitude = 0.0;
             SpectralType = "";
             PrimaryComponent = 0;
+            BaseSystemId = "";
             AbsoluteMagnitude = 0.0;
             Luminosity = 0.0;
             ColourIndex = 0.0;
@@ -53,6 +64,7 @@ namespace _3DstarMap
             Gliese = "";
             Hd = 0;
             Hip = 0;
+            
         }
 
         public void SetId(int id) { Id = id; }
@@ -68,8 +80,6 @@ namespace _3DstarMap
         public void SetLuminosity(double luminosity) { Luminosity = luminosity; }
         public void SetColourIndex(double colourIndex) { ColourIndex = colourIndex; }
         public void SetConstellation(string constellation) { Constellation = constellation; }
-
-        // Fluent setters for the new specific catalogs
         public void SetBayer(string bayer) { Bayer = bayer; }
         public void SetFlam(string flam) { Flam = flam; }
         public void SetGliese(string gliese) { Gliese = gliese; }
