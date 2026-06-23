@@ -90,14 +90,17 @@ namespace _3DstarChart
             stableGroup.Children.Add(SystemPositionTransform);
             LocalSystemGroup.Transform = stableGroup;       // Maps to x:Name in XAML
 
-            string filePath = "starchart.csv";
+            string filePath = "bigstarchart.csv";
             masterChart = new StarCollection(filePath);
 
             if (masterChart.Stars != null && masterChart.Stars.Count > 0)
             {
                 homeStar = masterChart.Stars[0];
+                // DEBUG LOOKUP: Target the exact unique row ID for Tau Ceti
+                ///homeStar = masterChart.Stars.FirstOrDefault(s => s.Id == 8087);
             }
-
+            // Find Tau Ceti by its formatted name string, falling back to the first star if missing
+           
             PopulateStarMap();
 
             // DYNAMIC RETRO HUD INJECTION
@@ -206,12 +209,9 @@ namespace _3DstarChart
             CompositionTarget.Rendering += OnRenderFrame;
         }
 
-        // =====================================================================
-        // GRAPHICS RENDERING & SYSTEM POPULATION
-        // =====================================================================
         /// <summary>
         /// Clears out the dynamic scene graph entities and rebuilds the ambient background starfield.
-        /// Draws a vector glow sprite surface for the active system primary body inside LocalSystemGroup.
+        /// Filters out lonely Gliese/GJ catalog stars unless they are shortlisted on the HUD scanner arrays.
         /// </summary>
         private void PopulateStarMap()
         {
@@ -228,7 +228,7 @@ namespace _3DstarChart
             }
             foreach (var oldLayer in toRemove) MainViewport.Children.Remove(oldLayer);
 
-            // DYNAMIC RETRO 'ELITE' RADIAL GLOW TEXTURE GENERATION FOR THE MAIN STAR
+            // 1. GENERATE SYSTEM PRIMARY DISK GLOW
             Color systemStarColor = Colors.White;
             if (homeStar != null)
             {
@@ -250,7 +250,6 @@ namespace _3DstarChart
             renderTargetBitmap.Render(drawingVisual);
             var imageBrush = new ImageBrush(renderTargetBitmap);
 
-            // Construct the unscaled base plane mesh using configurable baseline dimension literals
             MeshGeometry3D quadMesh = new MeshGeometry3D();
             quadMesh.Positions.Add(new Point3D(-BaseQuadDimension, -BaseQuadDimension, 0));
             quadMesh.Positions.Add(new Point3D(BaseQuadDimension, -BaseQuadDimension, 0));
@@ -271,17 +270,13 @@ namespace _3DstarChart
 
             LocalSystemGroup.Children.Add(sunModel);
 
+            // 2. INITIAL COMPILATION PASS: CALCULATE ALL DISTANCES
             Dictionary<Color, Point3DCollection> colorGroups = new Dictionary<Color, Point3DCollection>();
             List<StarNeighborDisplay> neighborList = new List<StarNeighborDisplay>();
 
-            // Segment stellar chart records by spectral emission class to build optimized point-cloud layers
             foreach (Star star in masterChart.Stars)
             {
                 if (homeStar != null && star.Id == homeStar.Id) continue;
-
-                Color starColor = StarModelFactory.GetColourFromSpectrum(star.SpectralType);
-                if (!colorGroups.ContainsKey(starColor)) { colorGroups[starColor] = new Point3DCollection(); }
-                colorGroups[starColor].Add(new Point3D(star.X, star.Y, star.Z));
 
                 double dx = star.X - homeStar.X;
                 double dy = star.Y - homeStar.Y;
@@ -289,8 +284,58 @@ namespace _3DstarChart
                 double distanceToHome = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
                 neighborList.Add(new StarNeighborDisplay { AssociatedStar = star, Name = star.Name, Distance = distanceToHome });
+            }
 
-                // Generate text banners for stars currently within proximity distance thresholds
+            // Sort by proximity to establish absolute shortlist boundaries
+            neighborList.Sort((s1, s2) => s1.Distance.CompareTo(s2.Distance));
+
+            List<StarNeighborDisplay> clickableStars = new List<StarNeighborDisplay>();
+            List<StarNeighborDisplay> backgroundStars = new List<StarNeighborDisplay>();
+
+            for (int i = 0; i < neighborList.Count; i++)
+            {
+                if (i < 5) clickableStars.Add(neighborList[i]);
+                else if (i < 10) backgroundStars.Add(neighborList[i]);
+                else break;
+            }
+
+            // Expose the filtered data bindings to the retro layout grid resource engine
+            this.Resources["CachedNeighbors"] = clickableStars;
+            this.Resources["CachedDeepRange"] = backgroundStars;
+
+            // 3. GRAPHICS INJECTION AND ALLOW-LIST FIELD FILTER
+            foreach (var record in neighborList)
+            {
+                Star star = record.AssociatedStar;
+                double distanceToHome = record.Distance;
+
+                // Determine if this specific target is actively shown on our HUD list panels
+                bool isPinnedOnHud = clickableStars.Any(s => s.AssociatedStar.Id == star.Id) ||
+                                     backgroundStars.Any(s => s.AssociatedStar.Id == star.Id);
+
+                // =====================================================================
+                // VISIBILITY GUARD FILTER RULE
+                // =====================================================================
+                // If it's a lone generic catalog entry (Gliese or GJ)...
+                if (star.Name != null && (star.Name.StartsWith("Gliese") || star.Name.StartsWith("GJ")))
+                {
+                    if (star.Id == star.PrimaryComponent)
+                    {
+                        // ...and it didn't make the cut for the HUD panels, evict it entirely!
+                        if (!isPinnedOnHud)
+                        {
+                            continue;
+                        }
+                    }
+                }
+                // =====================================================================
+
+                // Build optimized point clouds for elements that survived the guard filter
+                Color starColor = StarModelFactory.GetColourFromSpectrum(star.SpectralType);
+                if (!colorGroups.ContainsKey(starColor)) { colorGroups[starColor] = new Point3DCollection(); }
+                colorGroups[starColor].Add(new Point3D(star.X, star.Y, star.Z));
+
+                // Paint dynamic layout label flags close to system coordinates
                 if (distanceToHome < NearLabelVisibilityLimit)
                 {
                     var starLabel = new BillboardTextVisual3D
@@ -306,22 +351,7 @@ namespace _3DstarChart
                 }
             }
 
-            // Sort and filter close neighbors vs deep scan ranges to populate navigation UI
-            neighborList.Sort((s1, s2) => s1.Distance.CompareTo(s2.Distance));
-
-            List<StarNeighborDisplay> clickableStars = new List<StarNeighborDisplay>();
-            List<StarNeighborDisplay> backgroundStars = new List<StarNeighborDisplay>();
-
-            for (int i = 0; i < neighborList.Count; i++)
-            {
-                if (i < 5) clickableStars.Add(neighborList[i]);
-                else if (i < 10) backgroundStars.Add(neighborList[i]);
-                else break;
-            }
-
-            this.Resources["CachedNeighbors"] = clickableStars;
-            this.Resources["CachedDeepRange"] = backgroundStars;
-
+            // Batch render point array collections directly onto the viewport tree
             foreach (var kvp in colorGroups)
             {
                 PointsVisual3D starLayer = new PointsVisual3D { Points = kvp.Value, Color = kvp.Key, Size = 4 };

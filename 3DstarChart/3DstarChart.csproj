@@ -14,6 +14,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="bigstarchart.csv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="starchart.csv">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
