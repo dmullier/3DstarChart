@@ -23,7 +23,7 @@ namespace _3DstarChart
         // =====================================================================
         // CONFIGURATION VARIABLES & CONFIGURABLE CONSTANTS
         // =====================================================================
-        private const int ParticleCount = 800;                 // Total density of the interstellar warp field
+        private const int ParticleCount = 1800;                 // Total density of the interstellar warp field
         private const double WarpSpeed = 0.15;                 // Frame translation increment for dust streaming
         private const double WarpStreakLength = 0.3;           // Z-axis line length of the vector motion streaks
         private const double SpaceDustSpreadRadius = 30.0;     // Horizontal/Vertical bounds of coordinate particle generation
@@ -34,7 +34,6 @@ namespace _3DstarChart
         private const double MaxSwellAnimationScale = 40.0;    // Target destination magnification for primary stars
         private const double NearLabelVisibilityLimit = 15.0;  // Direct distance threshold to draw HUD billboard string labels
         private const double FlightAnimationSeconds = 8.0;     // System-to-system dynamic transition duration baseline
-
         // =====================================================================
         // SCENE GRAPH & CORE ENGINE FIELDS
         // =====================================================================
@@ -276,23 +275,58 @@ namespace _3DstarChart
 
             LocalSystemGroup.Children.Add(sunModel);
 
-
             if (homeStar != null && homeStar.HasCompanions && homeStar.CompanionStars != null)
             {
-                // Spacing interval between stellar components
-                double offsetIncrement = BaseQuadDimension * 2.5;
-                double currentOffset = offsetIncrement;
+                double distanceScaleFactor = 3.0;
+                double minimumVisualOffset = BaseQuadDimension * 2.5;
+                double maximumVisualOffset = BaseCameraApproachDistance * 0.4;
+
+                // Track indices to dynamically alternate Z-depth layers
+                int companionIndex = 0;
 
                 foreach (int companionId in homeStar.CompanionStars)
                 {
-                    // Look up the companion object out of our dataset collection
                     Star companionStar = masterChart.Stars.FirstOrDefault(s => s.Id == companionId);
                     if (companionStar == null) continue;
 
-                    // 1. GET TRUE SPECTRAL COLOR FOR THIS SPECIFIC COMPANION
-                    Color companionColor = StarModelFactory.GetColourFromSpectrum(companionStar.SpectralType);
+                    // 1. DISTANCE SCALING & CLAMPING
+                    double dx = companionStar.X - homeStar.X;
+                    double dy = companionStar.Y - homeStar.Y;
+                    double dz = companionStar.Z - homeStar.Z;
+                    double actualDistance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
-                    // 2. GENERATE A DYNAMIC RADIAL GLOW TEXTURE MATCHING THE COMPANION'S COLOR
+                    double currentOffset = actualDistance * distanceScaleFactor;
+                    if (currentOffset < minimumVisualOffset) currentOffset = minimumVisualOffset;
+                    if (currentOffset > maximumVisualOffset) currentOffset = maximumVisualOffset;
+
+                    if (actualDistance < 0.001)
+                    {
+                        currentOffset = minimumVisualOffset * (companionIndex + 1);
+                    }
+
+                    // 2. RADIUS SCALING WITH A STRICT MINIMUM GUARD (Fixes Keid B & C)
+                    double primaryLum = homeStar.Luminosity > 0 ? homeStar.Luminosity : 1.0;
+                    double companionLum = companionStar.Luminosity > 0 ? companionStar.Luminosity : 0.1;
+
+                    double relativeRadiusScale = Math.Sqrt(companionLum / primaryLum);
+
+                    // HARD CUTOFF: Companions can be larger, but never shrink to invisibility
+                    if (relativeRadiusScale < 0.35) relativeRadiusScale = 0.35;
+                    if (relativeRadiusScale > 1.5) relativeRadiusScale = 1.5;
+
+                    double size = BaseQuadDimension * relativeRadiusScale;
+
+                    // 3. NEW FEATURE: STAGGERED Z-DEPTH FOR PARALLAX
+                    // Alternate putting companions slightly in front of or behind the main star plane
+                    double localZOffset = (companionIndex % 2 == 0)
+                        ? (BaseQuadDimension * 0.5)   // Slightly in front
+                        : -(BaseQuadDimension * 0.5);  // Slightly behind
+
+                    // Push subsequent stars slightly further along the depth plane to prevent conflicts
+                    localZOffset += (companionIndex * 0.1 * BaseQuadDimension);
+
+                    // 4. GENERATE RADIAL GLOW TEXTURE
+                    Color companionColor = StarModelFactory.GetColourFromSpectrum(companionStar.SpectralType);
                     var compDrawingVisual = new DrawingVisual();
                     using (var drawingContext = compDrawingVisual.RenderOpen())
                     {
@@ -308,18 +342,14 @@ namespace _3DstarChart
                     compRenderTarget.Render(compDrawingVisual);
                     var compImageBrush = new ImageBrush(compRenderTarget);
 
-                    // 3. BUILD THE PLANE QUAD POSITIONED TO THE SIDE (OFFSET ALONG THE X-AXIS)
+                    // 5. BUILD QUAD MESH WITH LOCAL Z DEPTH APPLIED
                     var compQuadMesh = new System.Windows.Media.Media3D.MeshGeometry3D();
 
-                    // Scale the companion's visual footprint smaller than the primary (e.g., 60% scale)
-                    double compScale = 0.6;
-                    double size = BaseQuadDimension * compScale;
-
-                    // Apply the local X-axis displacement straight to the vertex positions
-                    compQuadMesh.Positions.Add(new Point3D(currentOffset - size, -size, 0));
-                    compQuadMesh.Positions.Add(new Point3D(currentOffset + size, -size, 0));
-                    compQuadMesh.Positions.Add(new Point3D(currentOffset + size, size, 0));
-                    compQuadMesh.Positions.Add(new Point3D(currentOffset - size, size, 0));
+                    // We apply localZOffset to all 4 vertex nodes on the Z axis
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset - size, -size, localZOffset));
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset + size, -size, localZOffset));
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset + size, size, localZOffset));
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset - size, size, localZOffset));
 
                     compQuadMesh.TextureCoordinates.Add(new Point(0, 1));
                     compQuadMesh.TextureCoordinates.Add(new Point(1, 1));
@@ -329,27 +359,29 @@ namespace _3DstarChart
                     compQuadMesh.TriangleIndices.Add(0); compQuadMesh.TriangleIndices.Add(1); compQuadMesh.TriangleIndices.Add(2);
                     compQuadMesh.TriangleIndices.Add(0); compQuadMesh.TriangleIndices.Add(2); compQuadMesh.TriangleIndices.Add(3);
 
-                    // 4. PACK INTO A STANDARDIZED DIFFUSE MODEL
                     var compMaterial = new DiffuseMaterial(compImageBrush);
                     var companionModel = new GeometryModel3D(compQuadMesh, compMaterial);
                     companionModel.BackMaterial = compMaterial;
 
-                    // Inject directly into the animated local system transform container group
                     LocalSystemGroup.Children.Add(companionModel);
 
-                    // 5. HOVERING HUD IDENTIFIER LABEL
+                    // 6. HUD LABEL POSITION MATCHING THE COMPANION PROFILE
+                    double scaledOffset = currentOffset * MaxSwellAnimationScale;
+                    double scaledYOffset = (size * 1.2) * MaxSwellAnimationScale;
+                    double scaledZOffset = localZOffset * MaxSwellAnimationScale;
+
                     var compLabel = new BillboardTextVisual3D
                     {
-                        Text = companionStar.Name,
-                        Position = new Point3D(homeStar.X + currentOffset, homeStar.Y + (BaseQuadDimension * 0.8), homeStar.Z),
+                        Text = companionStar.Name.ToUpper(),
+                        // Apply the scaled Z coordinate so the text label matches the parallax shift
+                        Position = new Point3D(homeStar.X + scaledOffset, homeStar.Y + scaledYOffset, homeStar.Z + scaledZOffset),
                         Height = 9,
-                        Foreground = new SolidColorBrush(Color.FromRgb(200, 255, 255)),
+                        Foreground = new SolidColorBrush(Color.FromRgb(180, 255, 255)),
                         FontFamily = new FontFamily("Consolas")
                     };
                     TextContainer.Children.Add(compLabel);
 
-                    // Step outwards to ensure subsequent binary companions do not overlap
-                    currentOffset += offsetIncrement;
+                    companionIndex++;
                 }
             }
             // =====================================================================
