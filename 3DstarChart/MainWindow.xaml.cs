@@ -1,4 +1,5 @@
 ﻿using _3DstarMap;
+using HelixToolkit.Geometry;
 using HelixToolkit.Wpf;
 using System;
 using System.Collections.Generic;
@@ -47,7 +48,7 @@ namespace _3DstarChart
         private Point3D[] dustParticles;
         private Random rand = new Random();
         private Star homeStar;
-        private int StartStarID = 7736;//8087; //catalogue id of starting star
+        private int StartStarID = 19799;//7736;//8087; //catalogue id of starting star
         private StarCollection masterChart = null;
 
         // REFACTORED: Renamed from SunPositionTransform to better represent global system translations
@@ -100,7 +101,7 @@ namespace _3DstarChart
                 // DEBUG LOOKUP: Target the exact unique row ID for Tau Ceti
                 homeStar = masterChart.Stars.FirstOrDefault(s => s.Id == StartStarID);// 8087);
             }
-            // Find Tau Ceti by its formatted name string, falling back to the first star if missing
+            
            
             PopulateStarMap();
 
@@ -214,6 +215,10 @@ namespace _3DstarChart
         /// Clears out the dynamic scene graph entities and rebuilds the ambient background starfield.
         /// Filters out lonely Gliese/GJ catalog stars unless they are shortlisted on the HUD scanner arrays.
         /// </summary>
+        /// <summary>
+        /// Clears out the dynamic scene graph entities and rebuilds the ambient background starfield.
+        /// Renders active home system components as distinct physical 3D geometries if companions exist.
+        /// </summary>
         private void PopulateStarMap()
         {
             if (masterChart == null) return;
@@ -251,7 +256,7 @@ namespace _3DstarChart
             renderTargetBitmap.Render(drawingVisual);
             var imageBrush = new ImageBrush(renderTargetBitmap);
 
-            MeshGeometry3D quadMesh = new MeshGeometry3D();
+            System.Windows.Media.Media3D.MeshGeometry3D quadMesh = new System.Windows.Media.Media3D.MeshGeometry3D();
             quadMesh.Positions.Add(new Point3D(-BaseQuadDimension, -BaseQuadDimension, 0));
             quadMesh.Positions.Add(new Point3D(BaseQuadDimension, -BaseQuadDimension, 0));
             quadMesh.Positions.Add(new Point3D(BaseQuadDimension, BaseQuadDimension, 0));
@@ -271,6 +276,84 @@ namespace _3DstarChart
 
             LocalSystemGroup.Children.Add(sunModel);
 
+
+            if (homeStar != null && homeStar.HasCompanions && homeStar.CompanionStars != null)
+            {
+                // Spacing interval between stellar components
+                double offsetIncrement = BaseQuadDimension * 2.5;
+                double currentOffset = offsetIncrement;
+
+                foreach (int companionId in homeStar.CompanionStars)
+                {
+                    // Look up the companion object out of our dataset collection
+                    Star companionStar = masterChart.Stars.FirstOrDefault(s => s.Id == companionId);
+                    if (companionStar == null) continue;
+
+                    // 1. GET TRUE SPECTRAL COLOR FOR THIS SPECIFIC COMPANION
+                    Color companionColor = StarModelFactory.GetColourFromSpectrum(companionStar.SpectralType);
+
+                    // 2. GENERATE A DYNAMIC RADIAL GLOW TEXTURE MATCHING THE COMPANION'S COLOR
+                    var compDrawingVisual = new DrawingVisual();
+                    using (var drawingContext = compDrawingVisual.RenderOpen())
+                    {
+                        var glowGradient = new RadialGradientBrush();
+                        glowGradient.GradientStops.Add(new GradientStop(Colors.White, 0.0));
+                        glowGradient.GradientStops.Add(new GradientStop(companionColor, 0.45));
+                        glowGradient.GradientStops.Add(new GradientStop(Color.FromArgb(160, companionColor.R, companionColor.G, companionColor.B), 0.70));
+                        glowGradient.GradientStops.Add(new GradientStop(Colors.Transparent, 0.95));
+                        drawingContext.DrawRectangle(glowGradient, null, new Rect(0, 0, 512, 512));
+                    }
+
+                    var compRenderTarget = new RenderTargetBitmap(512, 512, 96, 96, PixelFormats.Pbgra32);
+                    compRenderTarget.Render(compDrawingVisual);
+                    var compImageBrush = new ImageBrush(compRenderTarget);
+
+                    // 3. BUILD THE PLANE QUAD POSITIONED TO THE SIDE (OFFSET ALONG THE X-AXIS)
+                    var compQuadMesh = new System.Windows.Media.Media3D.MeshGeometry3D();
+
+                    // Scale the companion's visual footprint smaller than the primary (e.g., 60% scale)
+                    double compScale = 0.6;
+                    double size = BaseQuadDimension * compScale;
+
+                    // Apply the local X-axis displacement straight to the vertex positions
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset - size, -size, 0));
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset + size, -size, 0));
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset + size, size, 0));
+                    compQuadMesh.Positions.Add(new Point3D(currentOffset - size, size, 0));
+
+                    compQuadMesh.TextureCoordinates.Add(new Point(0, 1));
+                    compQuadMesh.TextureCoordinates.Add(new Point(1, 1));
+                    compQuadMesh.TextureCoordinates.Add(new Point(1, 0));
+                    compQuadMesh.TextureCoordinates.Add(new Point(0, 0));
+
+                    compQuadMesh.TriangleIndices.Add(0); compQuadMesh.TriangleIndices.Add(1); compQuadMesh.TriangleIndices.Add(2);
+                    compQuadMesh.TriangleIndices.Add(0); compQuadMesh.TriangleIndices.Add(2); compQuadMesh.TriangleIndices.Add(3);
+
+                    // 4. PACK INTO A STANDARDIZED DIFFUSE MODEL
+                    var compMaterial = new DiffuseMaterial(compImageBrush);
+                    var companionModel = new GeometryModel3D(compQuadMesh, compMaterial);
+                    companionModel.BackMaterial = compMaterial;
+
+                    // Inject directly into the animated local system transform container group
+                    LocalSystemGroup.Children.Add(companionModel);
+
+                    // 5. HOVERING HUD IDENTIFIER LABEL
+                    var compLabel = new BillboardTextVisual3D
+                    {
+                        Text = companionStar.Name,
+                        Position = new Point3D(homeStar.X + currentOffset, homeStar.Y + (BaseQuadDimension * 0.8), homeStar.Z),
+                        Height = 9,
+                        Foreground = new SolidColorBrush(Color.FromRgb(200, 255, 255)),
+                        FontFamily = new FontFamily("Consolas")
+                    };
+                    TextContainer.Children.Add(compLabel);
+
+                    // Step outwards to ensure subsequent binary companions do not overlap
+                    currentOffset += offsetIncrement;
+                }
+            }
+            // =====================================================================
+
             // 2. INITIAL COMPILATION PASS: CALCULATE ALL DISTANCES
             Dictionary<Color, Point3DCollection> colorGroups = new Dictionary<Color, Point3DCollection>();
             List<StarNeighborDisplay> neighborList = new List<StarNeighborDisplay>();
@@ -287,7 +370,6 @@ namespace _3DstarChart
                 neighborList.Add(new StarNeighborDisplay { AssociatedStar = star, Name = star.Name, Distance = distanceToHome });
             }
 
-            // Sort by proximity to establish absolute shortlist boundaries
             neighborList.Sort((s1, s2) => s1.Distance.CompareTo(s2.Distance));
 
             List<StarNeighborDisplay> clickableStars = new List<StarNeighborDisplay>();
@@ -300,7 +382,6 @@ namespace _3DstarChart
                 else break;
             }
 
-            // Expose the filtered data bindings to the retro layout grid resource engine
             this.Resources["CachedNeighbors"] = clickableStars;
             this.Resources["CachedDeepRange"] = backgroundStars;
 
@@ -310,33 +391,21 @@ namespace _3DstarChart
                 Star star = record.AssociatedStar;
                 double distanceToHome = record.Distance;
 
-                // Determine if this specific target is actively shown on our HUD list panels
                 bool isPinnedOnHud = clickableStars.Any(s => s.AssociatedStar.Id == star.Id) ||
                                      backgroundStars.Any(s => s.AssociatedStar.Id == star.Id);
 
-                // =====================================================================
-                // VISIBILITY GUARD FILTER RULE
-                // =====================================================================
-                // If it's a lone generic catalog entry (Gliese or GJ)...
                 if (star.Name != null && (star.Name.StartsWith("Gliese") || star.Name.StartsWith("GJ")))
                 {
                     if (star.Id == star.PrimaryComponent)
                     {
-                        // ...and it didn't make the cut for the HUD panels, evict it entirely!
-                        if (!isPinnedOnHud)
-                        {
-                            continue;
-                        }
+                        if (!isPinnedOnHud) continue;
                     }
                 }
-                // =====================================================================
 
-                // Build optimized point clouds for elements that survived the guard filter
                 Color starColor = StarModelFactory.GetColourFromSpectrum(star.SpectralType);
                 if (!colorGroups.ContainsKey(starColor)) { colorGroups[starColor] = new Point3DCollection(); }
                 colorGroups[starColor].Add(new Point3D(star.X, star.Y, star.Z));
 
-                // Paint dynamic layout label flags close to system coordinates
                 if (distanceToHome < NearLabelVisibilityLimit)
                 {
                     var starLabel = new BillboardTextVisual3D
@@ -352,14 +421,12 @@ namespace _3DstarChart
                 }
             }
 
-            // Batch render point array collections directly onto the viewport tree
             foreach (var kvp in colorGroups)
             {
                 PointsVisual3D starLayer = new PointsVisual3D { Points = kvp.Value, Color = kvp.Key, Size = 4 };
                 MainViewport.Children.Add(starLayer);
             }
         }
-
         // =====================================================================
         // CAMERA NAVIGATION & STORYBOARD FLIGHT ANIMATIONS
         // =====================================================================

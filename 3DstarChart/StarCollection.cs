@@ -209,7 +209,10 @@ namespace _3DstarMap
                         companionIds.Add(id);
                     }
                 }
-
+                if (companionIds.Count >= 2)
+                {
+                    Console.WriteLine("more than double found");
+                }
                 // 6. Return the array of companion IDs
                 return companionIds.ToArray();
             }
