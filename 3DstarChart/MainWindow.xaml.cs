@@ -471,8 +471,7 @@ namespace _3DstarChart
                 SystemScaleTransform.ScaleX = 1.0; SystemScaleTransform.ScaleY = 1.0; SystemScaleTransform.ScaleZ = 1.0;
 
                 // Reset the XAML automatic billboarding rotation upon flight execution
-                SystemAxisRotation.Angle = 0;
-                SystemAxisRotation.Axis = new Vector3D(0, 1, 0);
+                SystemQuaternionRotation.Quaternion = new Quaternion(0, 0, 0, 1);
 
                 Point3DAnimation cameraFlight = new Point3DAnimation
                 {
@@ -606,18 +605,33 @@ namespace _3DstarChart
 
                 // Stabilize Up-Vector to completely eliminate camera roll over poles
                 helixCamera.UpDirection = new Vector3D(0, 1, 0);
+                // 1. Get the direction vector from the star center pointing to the camera
+                Vector3D lookVector = new Vector3D(newX - centerX, newY - centerY, newZ - centerZ);
+                lookVector.Normalize();
 
-                // =====================================================================
-                // FIXED REAL-TIME BILLBOARD ALIGNMENT VIA XAML ROTATION
-                // =====================================================================
-                // Calculate the rotation angle needed to perfectly mirror the camera look direction
-                double horizontalDegrees = (horizontalAngle - Math.PI / 2) * (180.0 / Math.PI);
+                // 2. Calculate the exact Horizontal (Yaw) and Vertical (Pitch) angles required
+                // to face that look vector cleanly
+                double yawRadians = Math.Atan2(lookVector.X, lookVector.Z);
+                double pitchRadians = -Math.Asin(lookVector.Y);
 
-                SystemAxisRotation.Axis = new Vector3D(0, 1, 0);
-                SystemAxisRotation.Angle = horizontalDegrees;
+                // 3. Convert those radians directly into degrees
+                double yawDegrees = yawRadians * (180.0 / Math.PI);
+                double pitchDegrees = pitchRadians * (180.0 / Math.PI);
+
+                // 4. Build the separate rotation components
+                AxisAngleRotation3D horizontalRotation = new AxisAngleRotation3D(new Vector3D(0, 1, 0), yawDegrees);
+                AxisAngleRotation3D verticalRotation = new AxisAngleRotation3D(new Vector3D(1, 0, 0), pitchDegrees);
+
+                // 5. Combine them cleanly via Quaternions
+                Quaternion qHorizontal = new Quaternion(horizontalRotation.Axis, horizontalRotation.Angle);
+                Quaternion qVertical = new Quaternion(verticalRotation.Axis, verticalRotation.Angle);
+
+                // This order ensures the flat quads follow the camera on BOTH axes simultaneously
+                SystemQuaternionRotation.Quaternion = qHorizontal * qVertical;
                 // =====================================================================
 
                 e.Handled = true;
+
             }
         }
 
