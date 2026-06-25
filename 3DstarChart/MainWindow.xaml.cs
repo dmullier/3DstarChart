@@ -534,107 +534,117 @@ namespace _3DstarChart
 
         /// <summary>
         /// Intercepts keyboard inputs to orbit endlessly around the target system.
-        /// Keys: Arrow Keys = Smooth Orbital Loop, Z = Zoom In, X = Zoom Out
+        /// Rotates the camera matrix seamlessly to eliminate polar jerking artifacts.
         /// </summary>
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                double angleStep = 0.05;
+                double angleStep = 0.05; // Radians per keystroke pass
                 double zoomMultiplier = 0.90;
 
-                double currentRadius = BaseCameraApproachDistance;
-                if (homeStar != null)
-                {
-                    double dx = helixCamera.Position.X - homeStar.X;
-                    double dy = helixCamera.Position.Y - homeStar.Y;
-                    double dz = helixCamera.Position.Z - homeStar.Z;
-                    currentRadius = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                }
+                // 1. Establish the current center configuration matrix
+                double centerX = homeStar != null ? homeStar.X : 0.0;
+                double centerY = homeStar != null ? homeStar.Y : 0.0;
+                double centerZ = homeStar != null ? homeStar.Z : 0.0;
+                Point3D center = new Point3D(centerX, centerY, centerZ);
+
+                // Derive immediate look and position offset vectors
+                Vector3D lookDir = helixCamera.LookDirection;
+                lookDir.Normalize();
+
+                Vector3D currentOffset = helixCamera.Position - center;
+                double currentRadius = currentOffset.Length;
+
+                // 2. Extract local camera coordinates dynamically to prevent parallel vector cross conflicts
+                Vector3D localUp = helixCamera.UpDirection;
+                localUp.Normalize();
+
+                // Compute the camera's true horizontal right axis
+                Vector3D cameraRight = Vector3D.CrossProduct(lookDir, localUp);
+                cameraRight.Normalize();
+
+                // Re-verify local up to ensure absolute orthogonality
+                localUp = Vector3D.CrossProduct(cameraRight, lookDir);
+                localUp.Normalize();
+
+                Transform3DGroup cameraRotation = new Transform3DGroup();
 
                 switch (e.Key)
                 {
-                    // ENDLESS HORIZONTAL LOOPING
+                    // Endless Left/Right Orbiting (Rotate around the system's local vertical axis)
                     case Key.Left:
-                        horizontalAngle -= angleStep;
+                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(localUp, angleStep * (180.0 / Math.PI))));
                         break;
                     case Key.Right:
-                        horizontalAngle += angleStep;
+                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(localUp, -angleStep * (180.0 / Math.PI))));
                         break;
 
-                    // ENDLESS VERTICAL LOOPING
+                    // Endless Up/Down Orbiting (Rotate around the camera's horizontal side axis)
                     case Key.Up:
-                        verticalAngle += angleStep;
+                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, -angleStep * (180.0 / Math.PI))));
                         break;
                     case Key.Down:
-                        verticalAngle -= angleStep;
+                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, angleStep * (180.0 / Math.PI))));
                         break;
 
-                    // ZOOM OVERRIDES
+                    // Zoom Scale Modifiers
                     case Key.Z:
                         currentRadius *= zoomMultiplier;
                         if (currentRadius < BaseQuadDimension * 5) currentRadius = BaseQuadDimension * 5;
+                        currentOffset.Normalize();
+                        currentOffset *= currentRadius;
                         break;
                     case Key.X:
                         currentRadius /= zoomMultiplier;
+                        currentOffset.Normalize();
+                        currentOffset *= currentRadius;
                         break;
 
                     default:
                         return;
                 }
 
-                // Smoothly wrap angles around 360 degrees (2*PI radians)
-                horizontalAngle %= (2 * Math.PI);
-                verticalAngle %= (2 * Math.PI);
+                // 3. APPLY TRACE STEP TRANSFORMATIONS
+                Vector3D rotatedOffset = cameraRotation.Transform(currentOffset);
+                Vector3D rotatedUp = cameraRotation.Transform(localUp);
 
-                double centerX = homeStar != null ? homeStar.X : 0.0;
-                double centerY = homeStar != null ? homeStar.Y : 0.0;
-                double centerZ = homeStar != null ? homeStar.Z : 0.0;
+                // 4. COMMIT UPDATED CALCULATIONS TO THE LENS MATRIX
+                Point3D newPosition = center + rotatedOffset;
+                helixCamera.Position = newPosition;
 
-                // Update Camera Spatial Vector Matrix
-                double newX = centerX + currentRadius * Math.Cos(horizontalAngle) * Math.Cos(verticalAngle);
-                double newY = centerY + currentRadius * Math.Sin(verticalAngle);
-                double newZ = centerZ + currentRadius * Math.Sin(horizontalAngle) * Math.Cos(verticalAngle);
+                Vector3D newLookDir = center - newPosition;
+                newLookDir.Normalize();
+                helixCamera.LookDirection = newLookDir;
 
-                helixCamera.Position = new Point3D(newX, newY, newZ);
+                // Let the up direction update naturally based on the rotation transformation path
+                rotatedUp.Normalize();
+                helixCamera.UpDirection = rotatedUp;
 
-                // Re-orient Look-At target direction to lock dead-center
-                Vector3D lookDir = new Vector3D(centerX - newX, centerY - newY, centerZ - newZ);
-                lookDir.Normalize();
-                helixCamera.LookDirection = lookDir;
+                // =====================================================================
+                // AUTOMATIC VECTOR BILLBOARD ORIENTATION
+                // =====================================================================
+                Vector3D billboardLookVector = new Vector3D(newPosition.X - centerX, newPosition.Y - centerY, newPosition.Z - centerZ);
+                billboardLookVector.Normalize();
 
-                // Stabilize Up-Vector to completely eliminate camera roll over poles
-                helixCamera.UpDirection = new Vector3D(0, 1, 0);
-                // 1. Get the direction vector from the star center pointing to the camera
-                Vector3D lookVector = new Vector3D(newX - centerX, newY - centerY, newZ - centerZ);
-                lookVector.Normalize();
+                double yawRadians = Math.Atan2(billboardLookVector.X, billboardLookVector.Z);
+                double pitchRadians = -Math.Asin(billboardLookVector.Y);
 
-                // 2. Calculate the exact Horizontal (Yaw) and Vertical (Pitch) angles required
-                // to face that look vector cleanly
-                double yawRadians = Math.Atan2(lookVector.X, lookVector.Z);
-                double pitchRadians = -Math.Asin(lookVector.Y);
-
-                // 3. Convert those radians directly into degrees
                 double yawDegrees = yawRadians * (180.0 / Math.PI);
                 double pitchDegrees = pitchRadians * (180.0 / Math.PI);
 
-                // 4. Build the separate rotation components
                 AxisAngleRotation3D horizontalRotation = new AxisAngleRotation3D(new Vector3D(0, 1, 0), yawDegrees);
                 AxisAngleRotation3D verticalRotation = new AxisAngleRotation3D(new Vector3D(1, 0, 0), pitchDegrees);
 
-                // 5. Combine them cleanly via Quaternions
                 Quaternion qHorizontal = new Quaternion(horizontalRotation.Axis, horizontalRotation.Angle);
                 Quaternion qVertical = new Quaternion(verticalRotation.Axis, verticalRotation.Angle);
 
-                // This order ensures the flat quads follow the camera on BOTH axes simultaneously
                 SystemQuaternionRotation.Quaternion = qHorizontal * qVertical;
                 // =====================================================================
 
                 e.Handled = true;
-
             }
         }
-
         private void InitializeDustField()
         {
             dustParticles = new Point3D[ParticleCount];
