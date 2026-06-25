@@ -23,7 +23,15 @@
                 <ModelVisual3D.Content>
                     <Model3DGroup x:Name="LocalSystemGroup">
                         <Model3DGroup.Transform>
-                            <ScaleTransform3D x:Name="SystemScaleTransform" ScaleX="1" ScaleY="1" ScaleZ="1" />
+                            <Transform3DGroup>
+                                <ScaleTransform3D x:Name="SystemScaleTransform" ScaleX="1" ScaleY="1" ScaleZ="1" />
+                                <RotateTransform3D x:Name="SystemRotationTransform">
+                                    <RotateTransform3D.Rotation>
+                                        <AxisAngleRotation3D x:Name="SystemAxisRotation" Axis="0,1,0" Angle="0"/>
+                                    </RotateTransform3D.Rotation>
+                                </RotateTransform3D>
+                                <TranslateTransform3D x:Name="SystemPositionTransform" OffsetX="0" OffsetY="0" OffsetZ="0"/>
+                            </Transform3DGroup>
                         </Model3DGroup.Transform>
                     </Model3DGroup>
                 </ModelVisual3D.Content>

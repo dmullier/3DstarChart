@@ -3,6 +3,7 @@ using HelixToolkit.Geometry;
 using HelixToolkit.Wpf;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -24,8 +25,8 @@ namespace _3DstarChart
         // CONFIGURATION VARIABLES & CONFIGURABLE CONSTANTS
         // =====================================================================
         private const int ParticleCount = 1800;                 // Total density of the interstellar warp field
-        private const double WarpSpeed = 0.15;                 // Frame translation increment for dust streaming
-        private const double WarpStreakLength = 0.3;           // Z-axis line length of the vector motion streaks
+        private const double WarpSpeed = 0.15;                  // Frame translation increment for dust streaming
+        private const double WarpStreakLength = 0.3;            // Z-axis line length of the vector motion streaks
         private const double SpaceDustSpreadRadius = 30.0;     // Horizontal/Vertical bounds of coordinate particle generation
         private const double SpaceDustAheadBuffer = 40.0;      // Maximum ahead distance threshold for line recycling
 
@@ -34,6 +35,7 @@ namespace _3DstarChart
         private const double MaxSwellAnimationScale = 40.0;    // Target destination magnification for primary stars
         private const double NearLabelVisibilityLimit = 15.0;  // Direct distance threshold to draw HUD billboard string labels
         private const double FlightAnimationSeconds = 8.0;     // System-to-system dynamic transition duration baseline
+
         // =====================================================================
         // SCENE GRAPH & CORE ENGINE FIELDS
         // =====================================================================
@@ -47,12 +49,14 @@ namespace _3DstarChart
         private Point3D[] dustParticles;
         private Random rand = new Random();
         private Star homeStar;
-        private int StartStarID = 19799;//7736;//8087; //catalogue id of starting star
+        private int StartStarID = 19799; // Catalogue ID of starting star (Keid)
         private StarCollection masterChart = null;
 
-        // REFACTORED: Renamed from SunPositionTransform to better represent global system translations
-        private TranslateTransform3D SystemPositionTransform = new TranslateTransform3D(0, 0, 0);
         private Point3D cameraTargetPosition;
+
+        // Persistent Tracking Angles for Endless Keyboard Orbiting
+        private double horizontalAngle = Math.PI / 2; // Start facing down the Z axis
+        private double verticalAngle = 0.0;           // Track up/down pitch inclination
 
         private TextBlock HudSpectralText;
         private TextBlock HudCoordsText;
@@ -70,12 +74,13 @@ namespace _3DstarChart
             MainViewport.PanGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Shift);
             MainViewport.ZoomGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Alt);
 
+            this.KeyDown += MainWindow_KeyDown;
             this.Loaded += MainWindow_Loaded;
         }
 
         /// <summary>
         /// Fires when the engine window finishes loading. Configures the basic 3D scene layers,
-        /// sets up structural transforms, parses the star dataset file, and injects the dashboard HUD overlay.
+        /// parses the star dataset file, and injects the dashboard HUD overlay.
         /// </summary>
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
@@ -85,23 +90,14 @@ namespace _3DstarChart
             MainViewport.Children.Add(TextContainer);
             MainViewport.Children.Add(DustField);
 
-            // Bind persistent structural scaling and translating animations straight to the local system container
-            var stableGroup = new Transform3DGroup();
-            stableGroup.Children.Add(SystemScaleTransform); // Maps to x:Name in XAML
-            stableGroup.Children.Add(SystemPositionTransform);
-            LocalSystemGroup.Transform = stableGroup;       // Maps to x:Name in XAML
-
             string filePath = "bigstarchart.csv";
             masterChart = new StarCollection(filePath);
 
             if (masterChart.Stars != null && masterChart.Stars.Count > 0)
             {
-                //homeStar = masterChart.Stars[0];
-                // DEBUG LOOKUP: Target the exact unique row ID for Tau Ceti
-                homeStar = masterChart.Stars.FirstOrDefault(s => s.Id == StartStarID);// 8087);
+                homeStar = masterChart.Stars.FirstOrDefault(s => s.Id == StartStarID);
             }
-            
-           
+
             PopulateStarMap();
 
             // DYNAMIC RETRO HUD INJECTION
@@ -110,7 +106,6 @@ namespace _3DstarChart
             var systemInnerStack = new StackPanel();
 
             systemInnerStack.Children.Add(new TextBlock { Text = "CURRENT SYSTEM", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold });
-            // If the file is valid, it reads the true first star name. Otherwise, it reports an empty data set.
             string homeName = homeStar != null ? homeStar.Name.ToUpper() : "UNKNOWN SYSTEM / NO DATA";
             CurrentSystemText = new TextBlock { Text = homeName, FontSize = 22, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 8) };
             systemInnerStack.Children.Add(CurrentSystemText);
@@ -210,14 +205,9 @@ namespace _3DstarChart
             CompositionTarget.Rendering += OnRenderFrame;
         }
 
-        /// <summary>
-        /// Clears out the dynamic scene graph entities and rebuilds the ambient background starfield.
-        /// Filters out lonely Gliese/GJ catalog stars unless they are shortlisted on the HUD scanner arrays.
-        /// </summary>
-        /// <summary>
-        /// Clears out the dynamic scene graph entities and rebuilds the ambient background starfield.
-        /// Renders active home system components as distinct physical 3D geometries if companions exist.
-        /// </summary>
+        // =====================================================================
+        // MAP GENERATION & DATA REPRESENTATION
+        // =====================================================================
         private void PopulateStarMap()
         {
             if (masterChart == null) return;
@@ -225,7 +215,6 @@ namespace _3DstarChart
             LocalSystemGroup.Children.Clear();
             TextContainer.Children.Clear();
 
-            // Clear old background points layers safely from the viewport scene tree
             List<Visual3D> toRemove = new List<Visual3D>();
             foreach (var child in MainViewport.Children)
             {
@@ -255,6 +244,7 @@ namespace _3DstarChart
             renderTargetBitmap.Render(drawingVisual);
             var imageBrush = new ImageBrush(renderTargetBitmap);
 
+            // Stable native WPF Quad Mesh for Central Star
             System.Windows.Media.Media3D.MeshGeometry3D quadMesh = new System.Windows.Media.Media3D.MeshGeometry3D();
             quadMesh.Positions.Add(new Point3D(-BaseQuadDimension, -BaseQuadDimension, 0));
             quadMesh.Positions.Add(new Point3D(BaseQuadDimension, -BaseQuadDimension, 0));
@@ -275,13 +265,13 @@ namespace _3DstarChart
 
             LocalSystemGroup.Children.Add(sunModel);
 
+            // 2. GENERATE PHYSICS-DRIVEN DYNAMIC COMPANIONS (WITH PARALLAX & GUARDS)
             if (homeStar != null && homeStar.HasCompanions && homeStar.CompanionStars != null)
             {
                 double distanceScaleFactor = 3.0;
                 double minimumVisualOffset = BaseQuadDimension * 2.5;
                 double maximumVisualOffset = BaseCameraApproachDistance * 0.4;
 
-                // Track indices to dynamically alternate Z-depth layers
                 int companionIndex = 0;
 
                 foreach (int companionId in homeStar.CompanionStars)
@@ -289,7 +279,6 @@ namespace _3DstarChart
                     Star companionStar = masterChart.Stars.FirstOrDefault(s => s.Id == companionId);
                     if (companionStar == null) continue;
 
-                    // 1. DISTANCE SCALING & CLAMPING
                     double dx = companionStar.X - homeStar.X;
                     double dy = companionStar.Y - homeStar.Y;
                     double dz = companionStar.Z - homeStar.Z;
@@ -304,28 +293,20 @@ namespace _3DstarChart
                         currentOffset = minimumVisualOffset * (companionIndex + 1);
                     }
 
-                    // 2. RADIUS SCALING WITH A STRICT MINIMUM GUARD (Fixes Keid B & C)
+                    // Radius Scaling with Strict Minimum Guard (Keid B & C Fix)
                     double primaryLum = homeStar.Luminosity > 0 ? homeStar.Luminosity : 1.0;
                     double companionLum = companionStar.Luminosity > 0 ? companionStar.Luminosity : 0.1;
-
                     double relativeRadiusScale = Math.Sqrt(companionLum / primaryLum);
 
-                    // HARD CUTOFF: Companions can be larger, but never shrink to invisibility
                     if (relativeRadiusScale < 0.35) relativeRadiusScale = 0.35;
                     if (relativeRadiusScale > 1.5) relativeRadiusScale = 1.5;
 
                     double size = BaseQuadDimension * relativeRadiusScale;
 
-                    // 3. NEW FEATURE: STAGGERED Z-DEPTH FOR PARALLAX
-                    // Alternate putting companions slightly in front of or behind the main star plane
-                    double localZOffset = (companionIndex % 2 == 0)
-                        ? (BaseQuadDimension * 0.5)   // Slightly in front
-                        : -(BaseQuadDimension * 0.5);  // Slightly behind
-
-                    // Push subsequent stars slightly further along the depth plane to prevent conflicts
+                    // Stagger Z-depth values to generate true Parallax shifts
+                    double localZOffset = (companionIndex % 2 == 0) ? (BaseQuadDimension * 0.5) : -(BaseQuadDimension * 0.5);
                     localZOffset += (companionIndex * 0.1 * BaseQuadDimension);
 
-                    // 4. GENERATE RADIAL GLOW TEXTURE
                     Color companionColor = StarModelFactory.GetColourFromSpectrum(companionStar.SpectralType);
                     var compDrawingVisual = new DrawingVisual();
                     using (var drawingContext = compDrawingVisual.RenderOpen())
@@ -342,10 +323,7 @@ namespace _3DstarChart
                     compRenderTarget.Render(compDrawingVisual);
                     var compImageBrush = new ImageBrush(compRenderTarget);
 
-                    // 5. BUILD QUAD MESH WITH LOCAL Z DEPTH APPLIED
                     var compQuadMesh = new System.Windows.Media.Media3D.MeshGeometry3D();
-
-                    // We apply localZOffset to all 4 vertex nodes on the Z axis
                     compQuadMesh.Positions.Add(new Point3D(currentOffset - size, -size, localZOffset));
                     compQuadMesh.Positions.Add(new Point3D(currentOffset + size, -size, localZOffset));
                     compQuadMesh.Positions.Add(new Point3D(currentOffset + size, size, localZOffset));
@@ -365,7 +343,7 @@ namespace _3DstarChart
 
                     LocalSystemGroup.Children.Add(companionModel);
 
-                    // 6. HUD LABEL POSITION MATCHING THE COMPANION PROFILE
+                    // Tracked HUD Label Placement mapped to the static layout coordinates
                     double scaledOffset = currentOffset * MaxSwellAnimationScale;
                     double scaledYOffset = (size * 1.2) * MaxSwellAnimationScale;
                     double scaledZOffset = localZOffset * MaxSwellAnimationScale;
@@ -373,7 +351,6 @@ namespace _3DstarChart
                     var compLabel = new BillboardTextVisual3D
                     {
                         Text = companionStar.Name.ToUpper(),
-                        // Apply the scaled Z coordinate so the text label matches the parallax shift
                         Position = new Point3D(homeStar.X + scaledOffset, homeStar.Y + scaledYOffset, homeStar.Z + scaledZOffset),
                         Height = 9,
                         Foreground = new SolidColorBrush(Color.FromRgb(180, 255, 255)),
@@ -384,9 +361,8 @@ namespace _3DstarChart
                     companionIndex++;
                 }
             }
-            // =====================================================================
 
-            // 2. INITIAL COMPILATION PASS: CALCULATE ALL DISTANCES
+            // 3. BACKGROUND FIELDS GENERATION
             Dictionary<Color, Point3DCollection> colorGroups = new Dictionary<Color, Point3DCollection>();
             List<StarNeighborDisplay> neighborList = new List<StarNeighborDisplay>();
 
@@ -417,7 +393,6 @@ namespace _3DstarChart
             this.Resources["CachedNeighbors"] = clickableStars;
             this.Resources["CachedDeepRange"] = backgroundStars;
 
-            // 3. GRAPHICS INJECTION AND ALLOW-LIST FIELD FILTER
             foreach (var record in neighborList)
             {
                 Star star = record.AssociatedStar;
@@ -459,13 +434,10 @@ namespace _3DstarChart
                 MainViewport.Children.Add(starLayer);
             }
         }
+
         // =====================================================================
         // CAMERA NAVIGATION & STORYBOARD FLIGHT ANIMATIONS
         // =====================================================================
-        /// <summary>
-        /// Fires a coordinated hyperspace transition animation sequence. Flies the camera approach
-        /// vector towards the destination, while scaling up the local framework's geometric dimensions.
-        /// </summary>
         private void AnimateToStar()
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
@@ -479,7 +451,6 @@ namespace _3DstarChart
                     targetX = homeStar.X; targetY = homeStar.Y; targetZ = homeStar.Z;
                 }
 
-                // Snap the visual position transform layout straight to the target system coordinates
                 SystemPositionTransform.OffsetX = targetX;
                 SystemPositionTransform.OffsetY = targetY;
                 SystemPositionTransform.OffsetZ = targetZ;
@@ -493,12 +464,15 @@ namespace _3DstarChart
                 helixCamera.LookDirection = lookDirection;
                 helixCamera.UpDirection = upDirection;
 
-                // Strip old active storyboard loops to clean property state variables completely
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleXProperty, null);
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleYProperty, null);
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleZProperty, null);
 
                 SystemScaleTransform.ScaleX = 1.0; SystemScaleTransform.ScaleY = 1.0; SystemScaleTransform.ScaleZ = 1.0;
+
+                // Reset the XAML automatic billboarding rotation upon flight execution
+                SystemAxisRotation.Angle = 0;
+                SystemAxisRotation.Axis = new Vector3D(0, 1, 0);
 
                 Point3DAnimation cameraFlight = new Point3DAnimation
                 {
@@ -508,19 +482,14 @@ namespace _3DstarChart
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                 };
 
-                // UNLOCK COCKPIT CONTROLS UPON ARRIVAL
                 cameraFlight.Completed += (s, args) =>
                 {
-                    // Detach the active animation clock timeline to release property locking priority
                     helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, null);
-
-                    // Assign final position vector values permanently so it doesn't snap back
                     helixCamera.Position = cameraTargetPosition;
                 };
 
                 helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, cameraFlight);
 
-                // Run a synchronized swell timeline to grow the star from a point source into an expansive disk
                 DoubleAnimation sunSwellAnimation = new DoubleAnimation
                 {
                     From = 1.0,
@@ -536,12 +505,8 @@ namespace _3DstarChart
         }
 
         // =====================================================================
-        // SELECTION EVENTS & FRAME-UPDATE PIPELINES
+        // EVENT HANDLERS & INTERACTION PIPELINES
         // =====================================================================
-        /// <summary>
-        /// Handles click selections on adjacent navigation HUD records.
-        /// Refreshes layout data displays and triggers a fresh hyperwarp sequence.
-        /// </summary>
         private void NeighborRow_Click(object sender, MouseButtonEventArgs e)
         {
             if (sender is Border clickedBorder && clickedBorder.DataContext is StarNeighborDisplay selectedData)
@@ -558,6 +523,10 @@ namespace _3DstarChart
 
                 isAnimationFinished = false;
 
+                // Reset orbital variables for clean positioning bounds upon jumping systems
+                horizontalAngle = Math.PI / 2;
+                verticalAngle = 0.0;
+
                 PopulateStarMap();
                 InitializeDustField();
                 AnimateToStar();
@@ -565,9 +534,93 @@ namespace _3DstarChart
         }
 
         /// <summary>
-        /// Randomly distributes particle coordinates inside a defined forward buffer space
-        /// around the active arrival target coordinates.
+        /// Intercepts keyboard inputs to orbit endlessly around the target system.
+        /// Keys: Arrow Keys = Smooth Orbital Loop, Z = Zoom In, X = Zoom Out
         /// </summary>
+        private void MainWindow_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (MainViewport.Camera is PerspectiveCamera helixCamera)
+            {
+                double angleStep = 0.05;
+                double zoomMultiplier = 0.90;
+
+                double currentRadius = BaseCameraApproachDistance;
+                if (homeStar != null)
+                {
+                    double dx = helixCamera.Position.X - homeStar.X;
+                    double dy = helixCamera.Position.Y - homeStar.Y;
+                    double dz = helixCamera.Position.Z - homeStar.Z;
+                    currentRadius = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                }
+
+                switch (e.Key)
+                {
+                    // ENDLESS HORIZONTAL LOOPING
+                    case Key.Left:
+                        horizontalAngle -= angleStep;
+                        break;
+                    case Key.Right:
+                        horizontalAngle += angleStep;
+                        break;
+
+                    // ENDLESS VERTICAL LOOPING
+                    case Key.Up:
+                        verticalAngle += angleStep;
+                        break;
+                    case Key.Down:
+                        verticalAngle -= angleStep;
+                        break;
+
+                    // ZOOM OVERRIDES
+                    case Key.Z:
+                        currentRadius *= zoomMultiplier;
+                        if (currentRadius < BaseQuadDimension * 5) currentRadius = BaseQuadDimension * 5;
+                        break;
+                    case Key.X:
+                        currentRadius /= zoomMultiplier;
+                        break;
+
+                    default:
+                        return;
+                }
+
+                // Smoothly wrap angles around 360 degrees (2*PI radians)
+                horizontalAngle %= (2 * Math.PI);
+                verticalAngle %= (2 * Math.PI);
+
+                double centerX = homeStar != null ? homeStar.X : 0.0;
+                double centerY = homeStar != null ? homeStar.Y : 0.0;
+                double centerZ = homeStar != null ? homeStar.Z : 0.0;
+
+                // Update Camera Spatial Vector Matrix
+                double newX = centerX + currentRadius * Math.Cos(horizontalAngle) * Math.Cos(verticalAngle);
+                double newY = centerY + currentRadius * Math.Sin(verticalAngle);
+                double newZ = centerZ + currentRadius * Math.Sin(horizontalAngle) * Math.Cos(verticalAngle);
+
+                helixCamera.Position = new Point3D(newX, newY, newZ);
+
+                // Re-orient Look-At target direction to lock dead-center
+                Vector3D lookDir = new Vector3D(centerX - newX, centerY - newY, centerZ - newZ);
+                lookDir.Normalize();
+                helixCamera.LookDirection = lookDir;
+
+                // Stabilize Up-Vector to completely eliminate camera roll over poles
+                helixCamera.UpDirection = new Vector3D(0, 1, 0);
+
+                // =====================================================================
+                // FIXED REAL-TIME BILLBOARD ALIGNMENT VIA XAML ROTATION
+                // =====================================================================
+                // Calculate the rotation angle needed to perfectly mirror the camera look direction
+                double horizontalDegrees = (horizontalAngle - Math.PI / 2) * (180.0 / Math.PI);
+
+                SystemAxisRotation.Axis = new Vector3D(0, 1, 0);
+                SystemAxisRotation.Angle = horizontalDegrees;
+                // =====================================================================
+
+                e.Handled = true;
+            }
+        }
+
         private void InitializeDustField()
         {
             dustParticles = new Point3D[ParticleCount];
@@ -587,8 +640,7 @@ namespace _3DstarChart
         }
 
         /// <summary>
-        /// Real-time compositions loop callback thread. Animates dust lines down the camera lens plane,
-        /// refreshing vector trails to mimic realistic velocity streaking fields during system flights.
+        /// Real-time compositions loop callback thread. Updates hyperspace warp dust particles.
         /// </summary>
         private void OnRenderFrame(object sender, EventArgs e)
         {
@@ -598,7 +650,6 @@ namespace _3DstarChart
                 double targetY = homeStar != null ? homeStar.Y : 0.0;
                 double targetZ = homeStar != null ? homeStar.Z : 0.0;
 
-                // Monitor camera distance to automatically drop warp streams once target alignment matches
                 if (!isAnimationFinished)
                 {
                     double dx = helixCamera.Position.X - cameraTargetPosition.X;
@@ -622,13 +673,11 @@ namespace _3DstarChart
                     }
                     else
                     {
-                        // Flush vector arrays entirely while active translation shifts take place
                         DustField.Points = new Point3DCollection();
                         return;
                     }
                 }
 
-                // Process forward stream steps, wrapping boundary elements seamlessly
                 Point3DCollection lineSegments = new Point3DCollection(ParticleCount * 2);
 
                 double maxBufferZ = targetZ + SpaceDustAheadBuffer;
@@ -650,10 +699,7 @@ namespace _3DstarChart
                         dustParticles[i] = new Point3D(dustParticles[i].X, dustParticles[i].Y, nextZ);
                     }
 
-                    // Vertex A: Base coordinates entry point node
                     lineSegments.Add(dustParticles[i]);
-
-                    // Vertex B: Shift out coordinate terminal bounds along Z to stretch vector lines
                     lineSegments.Add(new Point3D(dustParticles[i].X, dustParticles[i].Y, dustParticles[i].Z + WarpStreakLength));
                 }
 
