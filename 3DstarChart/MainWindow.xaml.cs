@@ -4,6 +4,7 @@ using HelixToolkit.Wpf;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,7 +17,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
-
+using Quaternion = System.Windows.Media.Media3D.Quaternion;
 namespace _3DstarChart
 {
     public partial class MainWindow : Window
@@ -54,13 +55,11 @@ namespace _3DstarChart
 
         private Point3D cameraTargetPosition;
 
-        // Persistent Tracking Angles for Endless Keyboard Orbiting
-        private double horizontalAngle = Math.PI / 2; // Start facing down the Z axis
-        private double verticalAngle = 0.0;           // Track up/down pitch inclination
-
         private TextBlock HudSpectralText;
         private TextBlock HudCoordsText;
         private TextBlock HudDetailText;
+        private TextBlock HudConstellationText; // Dynamic overlay hook
+        private TextBlock HudViewingVectorText;
 
         // =====================================================================
         // INITIALIZATION & LIFECYCLE
@@ -69,7 +68,6 @@ namespace _3DstarChart
         {
             InitializeComponent();
 
-            // Register custom, explicit mouse interactions to prevent default collision overrides
             MainViewport.RotateGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Control);
             MainViewport.PanGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Shift);
             MainViewport.ZoomGesture = new MouseGesture(MouseAction.LeftClick, ModifierKeys.Alt);
@@ -78,10 +76,6 @@ namespace _3DstarChart
             this.Loaded += MainWindow_Loaded;
         }
 
-        /// <summary>
-        /// Fires when the engine window finishes loading. Configures the basic 3D scene layers,
-        /// parses the star dataset file, and injects the dashboard HUD overlay.
-        /// </summary>
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             TextContainer = new ModelVisual3D();
@@ -101,32 +95,41 @@ namespace _3DstarChart
             PopulateStarMap();
 
             // DYNAMIC RETRO HUD INJECTION
-            var hudStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(20), Width = 260 };
+            var hudStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(20), Width = 280 };
             var systemBorder = new Border { BorderBrush = Brushes.Cyan, BorderThickness = new Thickness(2), Background = new SolidColorBrush(Color.FromArgb(128, 0, 0, 0)), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10) };
             var systemInnerStack = new StackPanel();
 
             systemInnerStack.Children.Add(new TextBlock { Text = "CURRENT SYSTEM", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold });
             string homeName = homeStar != null ? homeStar.Name.ToUpper() : "UNKNOWN SYSTEM / NO DATA";
-            CurrentSystemText = new TextBlock { Text = homeName, FontSize = 22, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 8) };
+            CurrentSystemText = new TextBlock { Text = homeName, FontSize = 22, Foreground = Brushes.White, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 6) };
             systemInnerStack.Children.Add(CurrentSystemText);
             systemInnerStack.Children.Add(new Border { BorderBrush = Brushes.DarkCyan, BorderThickness = new Thickness(0, 0, 0, 1), Margin = new Thickness(0, 0, 0, 8) });
 
             string spectral = homeStar != null ? homeStar.SpectralType : "G2V";
             string coords = homeStar != null ? $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}" : "X:0.00 Y:0.00 Z:0.00";
             string details = homeStar != null ? $"CATALOG ID: {homeStar.Id:D4}" : "CLASSIFICATION: STAR";
+            string constellation = homeStar != null && !string.IsNullOrEmpty(homeStar.Constellation) ? $"CONSTELLATION: {homeStar.Constellation.ToUpper()}" : "SECTOR: UNMAPPED SPEC";
 
-            HudSpectralText = new TextBlock { Text = $"CLASS: {spectral}", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 2) };
-            HudCoordsText = new TextBlock { Text = coords, FontSize = 11, Foreground = Brushes.Yellow, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 2) };
-            HudDetailText = new TextBlock { Text = details, FontSize = 11, Foreground = Brushes.LightGray, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 0) };
+            HudSpectralText = new TextBlock { Text = $"CLASS: {spectral}", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 1, 0, 1) };
+            HudConstellationText = new TextBlock { Text = constellation, FontSize = 11, Foreground = Brushes.MediumSpringGreen, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 1, 0, 1) };
+            HudCoordsText = new TextBlock { Text = coords, FontSize = 11, Foreground = Brushes.Yellow, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 1, 0, 1) };
+            HudDetailText = new TextBlock { Text = details, FontSize = 11, Foreground = Brushes.LightGray, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 1, 0, 0) };
+            HudViewingVectorText = new TextBlock { Text = "VIEW BRG: 090° | PTH: +00°", FontSize = 11, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 1) };
 
             systemInnerStack.Children.Add(HudSpectralText);
+            systemInnerStack.Children.Add(HudConstellationText);
             systemInnerStack.Children.Add(HudCoordsText);
             systemInnerStack.Children.Add(HudDetailText);
+            systemInnerStack.Children.Add(new Border { BorderBrush = Brushes.DarkCyan, BorderThickness = new Thickness(0, 0, 0, 1), Margin = new Thickness(0, 4, 0, 4) });
+            systemInnerStack.Children.Add(HudViewingVectorText);
             systemBorder.Child = systemInnerStack;
             hudStack.Children.Add(systemBorder);
 
             hudStack.Children.Add(new TextBlock { Text = "CLOSEST NEIGHBOURS:", FontSize = 12, Foreground = Brushes.Cyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 0, 6) });
 
+            // =====================================================================
+            // REFACTORED: CLOSEST NEIGHBOURS LIST TEMPLATE (UNIFIED BRIGHT COLOURS)
+            // =====================================================================
             NeighborsTextList = new ItemsControl();
             var rowTemplate = new DataTemplate();
             var borderFactory = new FrameworkElementFactory(typeof(Border));
@@ -139,22 +142,35 @@ namespace _3DstarChart
             borderFactory.AddHandler(Border.MouseLeftButtonDownEvent, new MouseButtonEventHandler(NeighborRow_Click));
 
             var gridFactory = new FrameworkElementFactory(typeof(Grid));
+
+            var leftStackFactory = new FrameworkElementFactory(typeof(StackPanel));
+            leftStackFactory.SetValue(StackPanel.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+
             var nameFactory = new FrameworkElementFactory(typeof(TextBlock));
             nameFactory.SetBinding(TextBlock.TextProperty, new Binding("Name"));
-            nameFactory.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Left);
-            nameFactory.SetValue(TextBlock.ForegroundProperty, Brushes.White);
+            nameFactory.SetValue(TextBlock.ForegroundProperty, Brushes.Cyan); // Force bright Cyan
             nameFactory.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
             nameFactory.SetValue(TextBlock.FontSizeProperty, 13.0);
             nameFactory.SetValue(TextBlock.FontWeightProperty, FontWeights.Bold);
 
+            var vectorFactory = new FrameworkElementFactory(typeof(TextBlock));
+            vectorFactory.SetBinding(TextBlock.TextProperty, new Binding("VectorTelemetryString"));
+            vectorFactory.SetValue(TextBlock.ForegroundProperty, Brushes.Cyan); // Force bright Cyan
+            vectorFactory.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
+            vectorFactory.SetValue(TextBlock.FontSizeProperty, 10.0);
+
+            leftStackFactory.AppendChild(nameFactory);
+            leftStackFactory.AppendChild(vectorFactory);
+
             var distFactory = new FrameworkElementFactory(typeof(TextBlock));
             distFactory.SetBinding(TextBlock.TextProperty, new Binding("DistanceString"));
             distFactory.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Right);
-            distFactory.SetValue(TextBlock.ForegroundProperty, Brushes.Yellow);
+            distFactory.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+            distFactory.SetValue(TextBlock.ForegroundProperty, Brushes.Cyan); // Force bright Cyan
             distFactory.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
             distFactory.SetValue(TextBlock.FontSizeProperty, 13.0);
 
-            gridFactory.AppendChild(nameFactory);
+            gridFactory.AppendChild(leftStackFactory);
             gridFactory.AppendChild(distFactory);
             borderFactory.AppendChild(gridFactory);
             rowTemplate.VisualTree = borderFactory;
@@ -163,31 +179,47 @@ namespace _3DstarChart
 
             hudStack.Children.Add(new TextBlock { Text = "DEEP RANGE SCAN:", FontSize = 11, Foreground = Brushes.DarkCyan, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold, Margin = new Thickness(4, 6, 0, 6) });
 
+            // =====================================================================
+            // REFACTORED: DEEP RANGE SCAN LIST TEMPLATE (UNIFIED BRIGHT COLOURS)
+            // =====================================================================
             DistantTextList = new ItemsControl();
             var secondaryTemplate = new DataTemplate();
             var baseBorder = new FrameworkElementFactory(typeof(Border));
-            baseBorder.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(0, 100, 100)));
+            baseBorder.SetValue(Border.BorderBrushProperty, Brushes.Cyan); // Fixed dark teal border to bright Cyan
             baseBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             baseBorder.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(40, 0, 0, 0)));
             baseBorder.SetValue(Border.PaddingProperty, new Thickness(8, 4, 8, 4));
             baseBorder.SetValue(Border.MarginProperty, new Thickness(0, 0, 0, 4));
 
             var baseGrid = new FrameworkElementFactory(typeof(Grid));
+
+            var rightStackFactory = new FrameworkElementFactory(typeof(StackPanel));
+            rightStackFactory.SetValue(StackPanel.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+
             var subNameText = new FrameworkElementFactory(typeof(TextBlock));
             subNameText.SetBinding(TextBlock.TextProperty, new Binding("Name"));
-            subNameText.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Left);
-            subNameText.SetValue(TextBlock.ForegroundProperty, Brushes.Gray);
+            subNameText.SetValue(TextBlock.ForegroundProperty, Brushes.Cyan); // Fixed dull gray to bright Cyan
             subNameText.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
             subNameText.SetValue(TextBlock.FontSizeProperty, 12.0);
+
+            var subVectorText = new FrameworkElementFactory(typeof(TextBlock));
+            subVectorText.SetBinding(TextBlock.TextProperty, new Binding("VectorTelemetryString"));
+            subVectorText.SetValue(TextBlock.ForegroundProperty, Brushes.Cyan); // Fixed faint dark teal to bright Cyan
+            subVectorText.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
+            subVectorText.SetValue(TextBlock.FontSizeProperty, 9.0);
+
+            rightStackFactory.AppendChild(subNameText);
+            rightStackFactory.AppendChild(subVectorText);
 
             var subDistText = new FrameworkElementFactory(typeof(TextBlock));
             subDistText.SetBinding(TextBlock.TextProperty, new Binding("DistanceString"));
             subDistText.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Right);
-            subDistText.SetValue(TextBlock.ForegroundProperty, Brushes.DarkGoldenrod);
+            subDistText.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+            subDistText.SetValue(TextBlock.ForegroundProperty, Brushes.Cyan); // Fixed dark goldenrod to bright Cyan
             subDistText.SetValue(TextBlock.FontFamilyProperty, new FontFamily("Consolas"));
             subDistText.SetValue(TextBlock.FontSizeProperty, 12.0);
 
-            baseGrid.AppendChild(subNameText);
+            baseGrid.AppendChild(rightStackFactory);
             baseGrid.AppendChild(subDistText);
             baseBorder.AppendChild(baseGrid);
             secondaryTemplate.VisualTree = baseBorder;
@@ -198,16 +230,12 @@ namespace _3DstarChart
             {
                 rootGrid.Children.Add(hudStack);
             }
-
             AnimateToStar();
             InitializeDustField();
 
             CompositionTarget.Rendering += OnRenderFrame;
         }
 
-        // =====================================================================
-        // MAP GENERATION & DATA REPRESENTATION
-        // =====================================================================
         private void PopulateStarMap()
         {
             if (masterChart == null) return;
@@ -222,7 +250,6 @@ namespace _3DstarChart
             }
             foreach (var oldLayer in toRemove) MainViewport.Children.Remove(oldLayer);
 
-            // 1. GENERATE SYSTEM PRIMARY DISK GLOW
             Color systemStarColor = Colors.White;
             if (homeStar != null)
             {
@@ -244,7 +271,6 @@ namespace _3DstarChart
             renderTargetBitmap.Render(drawingVisual);
             var imageBrush = new ImageBrush(renderTargetBitmap);
 
-            // Stable native WPF Quad Mesh for Central Star
             System.Windows.Media.Media3D.MeshGeometry3D quadMesh = new System.Windows.Media.Media3D.MeshGeometry3D();
             quadMesh.Positions.Add(new Point3D(-BaseQuadDimension, -BaseQuadDimension, 0));
             quadMesh.Positions.Add(new Point3D(BaseQuadDimension, -BaseQuadDimension, 0));
@@ -265,7 +291,6 @@ namespace _3DstarChart
 
             LocalSystemGroup.Children.Add(sunModel);
 
-            // 2. GENERATE PHYSICS-DRIVEN DYNAMIC COMPANIONS (WITH PARALLAX & GUARDS)
             if (homeStar != null && homeStar.HasCompanions && homeStar.CompanionStars != null)
             {
                 double distanceScaleFactor = 3.0;
@@ -288,12 +313,8 @@ namespace _3DstarChart
                     if (currentOffset < minimumVisualOffset) currentOffset = minimumVisualOffset;
                     if (currentOffset > maximumVisualOffset) currentOffset = maximumVisualOffset;
 
-                    if (actualDistance < 0.001)
-                    {
-                        currentOffset = minimumVisualOffset * (companionIndex + 1);
-                    }
+                    if (actualDistance < 0.001) currentOffset = minimumVisualOffset * (companionIndex + 1);
 
-                    // Radius Scaling with Strict Minimum Guard (Keid B & C Fix)
                     double primaryLum = homeStar.Luminosity > 0 ? homeStar.Luminosity : 1.0;
                     double companionLum = companionStar.Luminosity > 0 ? companionStar.Luminosity : 0.1;
                     double relativeRadiusScale = Math.Sqrt(companionLum / primaryLum);
@@ -303,7 +324,6 @@ namespace _3DstarChart
 
                     double size = BaseQuadDimension * relativeRadiusScale;
 
-                    // Stagger Z-depth values to generate true Parallax shifts
                     double localZOffset = (companionIndex % 2 == 0) ? (BaseQuadDimension * 0.5) : -(BaseQuadDimension * 0.5);
                     localZOffset += (companionIndex * 0.1 * BaseQuadDimension);
 
@@ -343,7 +363,6 @@ namespace _3DstarChart
 
                     LocalSystemGroup.Children.Add(companionModel);
 
-                    // Tracked HUD Label Placement mapped to the static layout coordinates
                     double scaledOffset = currentOffset * MaxSwellAnimationScale;
                     double scaledYOffset = (size * 1.2) * MaxSwellAnimationScale;
                     double scaledZOffset = localZOffset * MaxSwellAnimationScale;
@@ -362,7 +381,6 @@ namespace _3DstarChart
                 }
             }
 
-            // 3. BACKGROUND FIELDS GENERATION
             Dictionary<Color, Point3DCollection> colorGroups = new Dictionary<Color, Point3DCollection>();
             List<StarNeighborDisplay> neighborList = new List<StarNeighborDisplay>();
 
@@ -375,7 +393,8 @@ namespace _3DstarChart
                 double dz = star.Z - homeStar.Z;
                 double distanceToHome = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
-                neighborList.Add(new StarNeighborDisplay { AssociatedStar = star, Name = star.Name, Distance = distanceToHome });
+                // Initialize tracking container with system origins passed straight down for bearing calculations
+                neighborList.Add(new StarNeighborDisplay(star, homeStar, distanceToHome));
             }
 
             neighborList.Sort((s1, s2) => s1.Distance.CompareTo(s2.Distance));
@@ -435,9 +454,6 @@ namespace _3DstarChart
             }
         }
 
-        // =====================================================================
-        // CAMERA NAVIGATION & STORYBOARD FLIGHT ANIMATIONS
-        // =====================================================================
         private void AnimateToStar()
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
@@ -470,7 +486,6 @@ namespace _3DstarChart
 
                 SystemScaleTransform.ScaleX = 1.0; SystemScaleTransform.ScaleY = 1.0; SystemScaleTransform.ScaleZ = 1.0;
 
-                // Reset the XAML automatic billboarding rotation upon flight execution
                 SystemQuaternionRotation.Quaternion = new Quaternion(0, 0, 0, 1);
 
                 Point3DAnimation cameraFlight = new Point3DAnimation
@@ -503,9 +518,6 @@ namespace _3DstarChart
             }
         }
 
-        // =====================================================================
-        // EVENT HANDLERS & INTERACTION PIPELINES
-        // =====================================================================
         private void NeighborRow_Click(object sender, MouseButtonEventArgs e)
         {
             if (sender is Border clickedBorder && clickedBorder.DataContext is StarNeighborDisplay selectedData)
@@ -517,15 +529,15 @@ namespace _3DstarChart
                 if (HudCoordsText != null) HudCoordsText.Text = $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}";
                 if (HudDetailText != null) HudDetailText.Text = $"CATALOG ID: {homeStar.Id:D4}";
 
+                string constellation = homeStar != null && !string.IsNullOrEmpty(homeStar.Constellation) ? $"CONSTELLATION: {homeStar.Constellation.ToUpper()}" : "SECTOR: UNMAPPED SPEC";
+                if (HudConstellationText != null) HudConstellationText.Text = constellation;
+
                 if (NeighborsTextList != null) NeighborsTextList.ItemsSource = null;
                 if (DistantTextList != null) DistantTextList.ItemsSource = null;
 
                 isAnimationFinished = false;
-
-                // Reset orbital variables for clean positioning bounds upon jumping systems
-                horizontalAngle = Math.PI / 2;
-                verticalAngle = 0.0;
-
+                // Reset live screen vector readouts back to baseline approach metrics
+                if (HudViewingVectorText != null) HudViewingVectorText.Text = "VIEW BRG: 090° | PTH: +00°";
                 PopulateStarMap();
                 InitializeDustField();
                 AnimateToStar();
@@ -556,7 +568,7 @@ namespace _3DstarChart
                 Vector3D currentOffset = helixCamera.Position - center;
                 double currentRadius = currentOffset.Length;
 
-                // 2. Extract local camera coordinates dynamically to prevent parallel vector cross conflicts
+                // 2. FIXED TYPO: Extract local camera coordinates dynamically to prevent parallel vector cross conflicts
                 Vector3D localUp = helixCamera.UpDirection;
                 localUp.Normalize();
 
@@ -622,7 +634,7 @@ namespace _3DstarChart
                 helixCamera.UpDirection = rotatedUp;
 
                 // =====================================================================
-                // AUTOMATIC VECTOR BILLBOARD ORIENTATION
+                // FIXED AMBIGUITY: Explicitly qualify WPF's Media3D Quaternion structure
                 // =====================================================================
                 Vector3D billboardLookVector = new Vector3D(newPosition.X - centerX, newPosition.Y - centerY, newPosition.Z - centerZ);
                 billboardLookVector.Normalize();
@@ -636,12 +648,23 @@ namespace _3DstarChart
                 AxisAngleRotation3D horizontalRotation = new AxisAngleRotation3D(new Vector3D(0, 1, 0), yawDegrees);
                 AxisAngleRotation3D verticalRotation = new AxisAngleRotation3D(new Vector3D(1, 0, 0), pitchDegrees);
 
-                Quaternion qHorizontal = new Quaternion(horizontalRotation.Axis, horizontalRotation.Angle);
-                Quaternion qVertical = new Quaternion(verticalRotation.Axis, verticalRotation.Angle);
+                System.Windows.Media.Media3D.Quaternion qHorizontal = new System.Windows.Media.Media3D.Quaternion(horizontalRotation.Axis, horizontalRotation.Angle);
+                System.Windows.Media.Media3D.Quaternion qVertical = new System.Windows.Media.Media3D.Quaternion(verticalRotation.Axis, verticalRotation.Angle);
 
                 SystemQuaternionRotation.Quaternion = qHorizontal * qVertical;
                 // =====================================================================
+                // Calculate current bearing and pitch of the camera relative to system center
+                double currentCamBrgRad = Math.Atan2(newPosition.X - centerX, newPosition.Z - centerZ);
+                double currentCamBrgDeg = currentCamBrgRad * (180.0 / Math.PI);
+                if (currentCamBrgDeg < 0) currentCamBrgDeg += 360.0;
 
+                double currentCamPthRad = Math.Asin((newPosition.Y - centerY) / currentRadius);
+                double currentCamPthDeg = currentCamPthRad * (180.0 / Math.PI);
+
+                if (HudViewingVectorText != null)
+                {
+                    HudViewingVectorText.Text = $"VIEW BRG: {currentCamBrgDeg:000}° | PTH: {currentCamPthDeg:+00;-00;00}°";
+                }
                 e.Handled = true;
             }
         }
@@ -663,9 +686,6 @@ namespace _3DstarChart
             }
         }
 
-        /// <summary>
-        /// Real-time compositions loop callback thread. Updates hyperspace warp dust particles.
-        /// </summary>
         private void OnRenderFrame(object sender, EventArgs e)
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
@@ -703,7 +723,6 @@ namespace _3DstarChart
                 }
 
                 Point3DCollection lineSegments = new Point3DCollection(ParticleCount * 2);
-
                 double maxBufferZ = targetZ + SpaceDustAheadBuffer;
                 double resetFarZ = targetZ;
 
@@ -732,11 +751,54 @@ namespace _3DstarChart
         }
     }
 
+    // =====================================================================
+    // EXPANDED DATA DISPLAY MODEL WITH VECTOR CALCULATIONS
+    // =====================================================================
     public class StarNeighborDisplay
     {
         public Star AssociatedStar { get; set; }
         public string Name { get; set; }
         public double Distance { get; set; }
+        public double Bearing { get; private set; }
+        public double Pitch { get; private set; }
+
+        public StarNeighborDisplay(Star target, Star origin, double baselineDistance)
+        {
+            AssociatedStar = target;
+            Name = target.Name;
+            Distance = baselineDistance;
+
+            CalculateVectorMetrics(target, origin);
+        }
+
+        private void CalculateVectorMetrics(Star target, Star origin)
+        {
+            if (origin == null || target == null) return;
+
+            // Extract delta vectors relative to system center root
+            double dx = target.X - origin.X;
+            double dy = target.Y - origin.Y;
+            double dz = target.Z - origin.Z;
+
+            // 1. Calculate Astronomical Bearing (Yaw) in horizontal XZ plane
+            double bearingRad = Math.Atan2(dx, dz);
+            double bearingDeg = bearingRad * (180.0 / Math.PI);
+            if (bearingDeg < 0) bearingDeg += 360.0; // Wrap neatly to full circle
+            Bearing = bearingDeg;
+
+            // 2. Calculate Pitch (Inclination Angle relative to flat celestial horizon)
+            if (Distance > 0.001)
+            {
+                double pitchRad = Math.Asin(dy / Distance);
+                Pitch = pitchRad * (180.0 / Math.PI);
+            }
+            else
+            {
+                Pitch = 0.0;
+            }
+        }
+
         public string DistanceString => $"{Distance:F2} ly";
+        public string VectorTelemetryString => $"BRG: {Bearing:000}° | PTH: {Pitch:+00;-00;00}°";
     }
 }
