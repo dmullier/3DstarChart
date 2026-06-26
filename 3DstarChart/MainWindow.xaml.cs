@@ -60,7 +60,8 @@ namespace _3DstarChart
         private TextBlock HudDetailText;
         private TextBlock HudConstellationText; // Dynamic overlay hook
         private TextBlock HudViewingVectorText;
-
+        private PipeVisual3D RadarTargetRing; // Changed type to PipeVisual3D
+        private Storyboard CameraSweepStoryboard;
         // =====================================================================
         // INITIALIZATION & LIFECYCLE
         // =====================================================================
@@ -80,10 +81,18 @@ namespace _3DstarChart
         {
             TextContainer = new ModelVisual3D();
             DustField = new LinesVisual3D { Color = Color.FromArgb(176, 255, 255, 255), Thickness = 1.5 };
+            // Initialize a thin, glowing cyan selection ring using core Helix properties
+            RadarTargetRing = new PipeVisual3D
+            {
+                Diameter = 0.8,      // Outer diameter
+                InnerDiameter = 0.7, // Inner diameter
+                Fill = Brushes.Cyan,
+                Visible = false
+            };
 
             MainViewport.Children.Add(TextContainer);
             MainViewport.Children.Add(DustField);
-
+            MainViewport.Children.Add(RadarTargetRing);
             string filePath = "bigstarchart.csv";
             masterChart = new StarCollection(filePath);
 
@@ -140,7 +149,10 @@ namespace _3DstarChart
             borderFactory.SetValue(Border.MarginProperty, new Thickness(0, 0, 0, 6));
             borderFactory.SetValue(Border.CursorProperty, Cursors.Hand);
             borderFactory.AddHandler(Border.MouseLeftButtonDownEvent, new MouseButtonEventHandler(NeighborRow_Click));
-
+            // =====================================================================
+            // WIRED: Fire radar sweep calculations on mouse hover
+            // =====================================================================
+            borderFactory.AddHandler(Border.MouseEnterEvent, new MouseEventHandler(NeighborRow_MouseEnter));
             var gridFactory = new FrameworkElementFactory(typeof(Grid));
 
             var leftStackFactory = new FrameworkElementFactory(typeof(StackPanel));
@@ -190,6 +202,9 @@ namespace _3DstarChart
             baseBorder.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(40, 0, 0, 0)));
             baseBorder.SetValue(Border.PaddingProperty, new Thickness(8, 4, 8, 4));
             baseBorder.SetValue(Border.MarginProperty, new Thickness(0, 0, 0, 4));
+            baseBorder.SetValue(Border.CursorProperty, Cursors.Hand);
+            baseBorder.AddHandler(Border.MouseEnterEvent, new MouseEventHandler(NeighborRow_MouseEnter));
+            baseBorder.AddHandler(Border.MouseLeaveEvent, new MouseEventHandler(NeighborRow_MouseLeave));
 
             var baseGrid = new FrameworkElementFactory(typeof(Grid));
 
@@ -523,7 +538,10 @@ namespace _3DstarChart
             if (sender is Border clickedBorder && clickedBorder.DataContext is StarNeighborDisplay selectedData)
             {
                 homeStar = selectedData.AssociatedStar;
-
+                if (RadarTargetRing != null)
+                {
+                    RadarTargetRing.Visible = false;
+                }
                 if (CurrentSystemText != null) CurrentSystemText.Text = homeStar.Name.ToUpper();
                 if (HudSpectralText != null) HudSpectralText.Text = $"CLASS: {homeStar.SpectralType}";
                 if (HudCoordsText != null) HudCoordsText.Text = $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}";
@@ -541,6 +559,110 @@ namespace _3DstarChart
                 PopulateStarMap();
                 InitializeDustField();
                 AnimateToStar();
+            }
+        }
+
+        /// <summary>
+        /// Fires when the cursor drifts over a HUD data node. Automatically snaps
+        /// localized target coordinates or pan-sweeps the viewport lens array into alignment.
+        /// </summary>
+        private void NeighborRow_MouseEnter(object sender, MouseEventArgs e)
+        {
+            if (sender is Border hoveredBorder && hoveredBorder.DataContext is StarNeighborDisplay targetData)
+            {
+                Star targetStar = targetData.AssociatedStar;
+                if (targetStar == null || MainViewport.Camera is not PerspectiveCamera helixCamera) return;
+
+                CameraSweepStoryboard?.Stop();
+
+                // 1. CALCULATE TARGET WORLD COORDINATES
+                Point3D starWorldPos = new Point3D(targetStar.X, targetStar.Y, targetStar.Z);
+
+                // 2. FIXED: Pure manual matrix projection that works on EVERY version of Helix/WPF
+                bool isOnScreen = false;
+                try
+                {
+                    // Grab the raw viewport transformation matrix from the core Viewport3D engine
+                    Matrix3D viewportTransform = Visual3DHelper.GetViewportTransform(TextContainer);
+
+                    // Multiply the 3D star point by the viewport matrix to get the screen coordinates
+                    Point3D screenPoint3D = viewportTransform.Transform(starWorldPos);
+
+                    // If the transformed point sits inside the actual pixel boundaries of the UI container, it's visible!
+                    if (screenPoint3D.X >= 0 && screenPoint3D.X <= MainViewport.ActualWidth &&
+                        screenPoint3D.Y >= 0 && screenPoint3D.Y <= MainViewport.ActualHeight)
+                    {
+                        // Double check the line-of-sight vector to ensure it's in front of us, not behind our back
+                        Vector3D cameraToStar = starWorldPos - helixCamera.Position;
+                        if (Vector3D.DotProduct(cameraToStar, helixCamera.LookDirection) > 0)
+                        {
+                            isOnScreen = true;
+                        }
+                    }
+                }
+                catch { isOnScreen = false; }
+
+                if (isOnScreen)
+                {
+                    // =====================================================================
+                    // ACTION A: ANIMATE TRACKING RING OVER THE STAR
+                    // =====================================================================
+                    Vector3D norm = helixCamera.Position - starWorldPos;
+                    norm.Normalize();
+
+                    RadarTargetRing.Point1 = starWorldPos;
+                    RadarTargetRing.Point2 = starWorldPos + (norm * 0.01);
+                    RadarTargetRing.Visible = true;
+
+                    DoubleAnimation pulse = new DoubleAnimation(1.6, 0.8, new Duration(TimeSpan.FromSeconds(0.4)));
+                    RadarTargetRing.BeginAnimation(PipeVisual3D.DiameterProperty, pulse);
+                }
+                else
+                {
+                    // =====================================================================
+                    // ACTION B: TILT/PAN THE CAMERA SMOOTHLY TOWARDS THE STAR
+                    // =====================================================================
+                    RadarTargetRing.Visible = false;
+
+                    Vector3D targetLookDir = starWorldPos - helixCamera.Position;
+                    targetLookDir.Normalize();
+
+                    Vector3D targetRight = Vector3D.CrossProduct(targetLookDir, new Vector3D(0, 1, 0));
+                    Vector3D targetUpDir = Vector3D.CrossProduct(targetRight, targetLookDir);
+                    targetUpDir.Normalize();
+
+                    Vector3DAnimation lookAnim = new Vector3DAnimation { To = targetLookDir, Duration = new Duration(TimeSpan.FromSeconds(1.2)), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                    Vector3DAnimation upAnim = new Vector3DAnimation { To = targetUpDir, Duration = new Duration(TimeSpan.FromSeconds(1.2)), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+
+                    Storyboard.SetTarget(lookAnim, helixCamera);
+                    Storyboard.SetTargetProperty(lookAnim, new PropertyPath(PerspectiveCamera.LookDirectionProperty));
+                    Storyboard.SetTarget(upAnim, helixCamera);
+                    Storyboard.SetTargetProperty(upAnim, new PropertyPath(PerspectiveCamera.UpDirectionProperty));
+
+                    CameraSweepStoryboard = new Storyboard();
+                    CameraSweepStoryboard.Children.Add(lookAnim);
+                    CameraSweepStoryboard.Children.Add(upAnim);
+
+                    CameraSweepStoryboard.Completed += (s, args) =>
+                    {
+                        RadarTargetRing.Point1 = starWorldPos;
+                        RadarTargetRing.Point2 = starWorldPos + (targetLookDir * 0.01);
+                        RadarTargetRing.Visible = true;
+                    };
+
+                    CameraSweepStoryboard.Begin();
+                }
+            }
+        }
+        /// <summary>
+        /// Fires when the cursor exits a HUD data node. 
+        /// De-activates the active radar target tracking ring instantly.
+        /// </summary>
+        private void NeighborRow_MouseLeave(object sender, MouseEventArgs e)
+        {
+            if (RadarTargetRing != null)
+            {
+                RadarTargetRing.Visible = false;
             }
         }
 
