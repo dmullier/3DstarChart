@@ -552,91 +552,77 @@ namespace _3DstarChart
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                double angleStep = 0.05; // Radians per keystroke pass
+                double angleStep = 0.03; // Velocity step size for looking around
                 double zoomMultiplier = 0.90;
 
                 // 1. Establish the current center configuration matrix
                 double centerX = homeStar != null ? homeStar.X : 0.0;
                 double centerY = homeStar != null ? homeStar.Y : 0.0;
                 double centerZ = homeStar != null ? homeStar.Z : 0.0;
-                Point3D center = new Point3D(centerX, centerY, centerZ);
 
-                // Derive immediate look and position offset vectors
+                // 2. EXTRACT LIVE BASIS VECTORS FROM THE CAMERA'S LENS FRAME
                 Vector3D lookDir = helixCamera.LookDirection;
                 lookDir.Normalize();
 
-                Vector3D currentOffset = helixCamera.Position - center;
-                double currentRadius = currentOffset.Length;
-
-                // 2. FIXED TYPO: Extract local camera coordinates dynamically to prevent parallel vector cross conflicts
                 Vector3D localUp = helixCamera.UpDirection;
                 localUp.Normalize();
 
-                // Compute the camera's true horizontal right axis
+                // Compute the horizontal side-to-side vector relative to the camera lens
                 Vector3D cameraRight = Vector3D.CrossProduct(lookDir, localUp);
                 cameraRight.Normalize();
 
-                // Re-verify local up to ensure absolute orthogonality
-                localUp = Vector3D.CrossProduct(cameraRight, lookDir);
-                localUp.Normalize();
-
-                Transform3DGroup cameraRotation = new Transform3DGroup();
+                Transform3DGroup lookRotation = new Transform3DGroup();
 
                 switch (e.Key)
                 {
-                    // Endless Left/Right Orbiting (Rotate around the system's local vertical axis)
+                    // Look Left / Right (Rotate the viewing vector around the global Y axis)
                     case Key.Left:
-                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(localUp, angleStep * (180.0 / Math.PI))));
+                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(new Vector3D(0, 1, 0), angleStep * (180.0 / Math.PI))));
                         break;
                     case Key.Right:
-                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(localUp, -angleStep * (180.0 / Math.PI))));
+                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(new Vector3D(0, 1, 0), -angleStep * (180.0 / Math.PI))));
                         break;
 
-                    // Endless Up/Down Orbiting (Rotate around the camera's horizontal side axis)
+                    // Look Up / Down (Rotate the viewing vector around the camera's own right-to-left axis)
                     case Key.Up:
-                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, -angleStep * (180.0 / Math.PI))));
+                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, angleStep * (180.0 / Math.PI))));
                         break;
                     case Key.Down:
-                        cameraRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, angleStep * (180.0 / Math.PI))));
+                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, -angleStep * (180.0 / Math.PI))));
                         break;
 
-                    // Zoom Scale Modifiers
+                    // Zoom / Advance controls (Physically slide the look anchor forward or backward)
                     case Key.Z:
-                        currentRadius *= zoomMultiplier;
-                        if (currentRadius < BaseQuadDimension * 5) currentRadius = BaseQuadDimension * 5;
-                        currentOffset.Normalize();
-                        currentOffset *= currentRadius;
+                        helixCamera.Position += lookDir * (BaseCameraApproachDistance * (1 - zoomMultiplier));
                         break;
                     case Key.X:
-                        currentRadius /= zoomMultiplier;
-                        currentOffset.Normalize();
-                        currentOffset *= currentRadius;
+                        helixCamera.Position -= lookDir * (BaseCameraApproachDistance * (1 - zoomMultiplier));
                         break;
 
                     default:
                         return;
                 }
 
-                // 3. APPLY TRACE STEP TRANSFORMATIONS
-                Vector3D rotatedOffset = cameraRotation.Transform(currentOffset);
-                Vector3D rotatedUp = cameraRotation.Transform(localUp);
-
-                // 4. COMMIT UPDATED CALCULATIONS TO THE LENS MATRIX
-                Point3D newPosition = center + rotatedOffset;
-                helixCamera.Position = newPosition;
-
-                Vector3D newLookDir = center - newPosition;
+                // 3. APPLY EXPLICIT LOOK VECTOR TRANSFORMS (Camera position stays fixed!)
+                Vector3D newLookDir = lookRotation.Transform(lookDir);
                 newLookDir.Normalize();
                 helixCamera.LookDirection = newLookDir;
 
-                // Let the up direction update naturally based on the rotation transformation path
-                rotatedUp.Normalize();
-                helixCamera.UpDirection = rotatedUp;
+                Vector3D newUpDir = lookRotation.Transform(localUp);
+                newUpDir.Normalize();
+                helixCamera.UpDirection = newUpDir;
 
                 // =====================================================================
-                // FIXED AMBIGUITY: Explicitly qualify WPF's Media3D Quaternion structure
+                // REAL-TIME MULTI-AXIS BILLBOARDING FOR STATIONARY CAMERA
                 // =====================================================================
-                Vector3D billboardLookVector = new Vector3D(newPosition.X - centerX, newPosition.Y - centerY, newPosition.Z - centerZ);
+                // To keep the star quads volumetric while you look away, they need to 
+                // match the camera's live position relative to the local system center.
+                double dx = helixCamera.Position.X - centerX;
+                double dy = helixCamera.Position.Y - centerY;
+                double dz = helixCamera.Position.Z - centerZ;
+                double currentRadius = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+
+                Vector3D billboardLookVector = new Vector3D(dx, dy, dz);
                 billboardLookVector.Normalize();
 
                 double yawRadians = Math.Atan2(billboardLookVector.X, billboardLookVector.Z);
@@ -653,18 +639,23 @@ namespace _3DstarChart
 
                 SystemQuaternionRotation.Quaternion = qHorizontal * qVertical;
                 // =====================================================================
-                // Calculate current bearing and pitch of the camera relative to system center
-                double currentCamBrgRad = Math.Atan2(newPosition.X - centerX, newPosition.Z - centerZ);
-                double currentCamBrgDeg = currentCamBrgRad * (180.0 / Math.PI);
-                if (currentCamBrgDeg < 0) currentCamBrgDeg += 360.0;
 
-                double currentCamPthRad = Math.Asin((newPosition.Y - centerY) / currentRadius);
-                double currentCamPthDeg = currentCamPthRad * (180.0 / Math.PI);
+                // =====================================================================
+                // RADAR HUD TEXT UPDATE
+                // =====================================================================
+                // Calculate radar values based on where the camera is actually looking now
+                double viewBrgRad = Math.Atan2(newLookDir.X, newLookDir.Z);
+                double viewBrgDeg = viewBrgRad * (180.0 / Math.PI);
+                if (viewBrgDeg < 0) viewBrgDeg += 360.0;
+
+                double viewPthDeg = Math.Asin(newLookDir.Y) * (180.0 / Math.PI);
 
                 if (HudViewingVectorText != null)
                 {
-                    HudViewingVectorText.Text = $"VIEW BRG: {currentCamBrgDeg:000}° | PTH: {currentCamPthDeg:+00;-00;00}°";
+                    HudViewingVectorText.Text = $"VIEW BRG: {viewBrgDeg:000}° | PTH: {viewPthDeg:+00;-00;00}°";
                 }
+                // =====================================================================
+
                 e.Handled = true;
             }
         }
