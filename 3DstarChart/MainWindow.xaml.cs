@@ -37,6 +37,8 @@ namespace _3DstarChart
         private const double NearLabelVisibilityLimit = 15.0;  // Direct distance threshold to draw HUD billboard string labels
         private const double FlightAnimationSeconds = 8.0;     // System-to-system dynamic transition duration baseline
 
+        private bool IncludeUnnamedStars = false;               // Set to true to show all stars; set to false to filter out unnamed single stars
+
         // =====================================================================
         // SCENE GRAPH & CORE ENGINE FIELDS
         // =====================================================================
@@ -402,6 +404,28 @@ namespace _3DstarChart
             foreach (Star star in masterChart.Stars)
             {
                 if (homeStar != null && star.Id == homeStar.Id) continue;
+
+                // =====================================================================
+                // IMPLEMENTED CUSTOM STAR FILTERING RULE
+                // =====================================================================
+                // Rule: A star is kept if:
+                // - It has a proper name (is not null/empty and doesn't just start with generic catalog prefixes)
+                // - OR the global override 'IncludeUnnamedStars' is enabled
+                // - OR it belongs to a multiple star system (has companion components)
+                String starName = star.Name.ToUpper();
+                bool hasProperName = !string.IsNullOrEmpty(starName) &&
+                                     !starName.StartsWith("Gliese") &&
+                                     !starName.StartsWith("GJ") &&
+                                     !starName.StartsWith("GL ") &&
+                                     !starName.StartsWith("HD");
+
+                bool isMultipleSystem = star.HasCompanions ||
+                                        (star.PrimaryComponent > 0 && star.PrimaryComponent != star.Id);
+
+                if (!hasProperName && !IncludeUnnamedStars && !isMultipleSystem)
+                {
+                    continue; // Skip drawing and listing this background star
+                }
 
                 double dx = star.X - homeStar.X;
                 double dy = star.Y - homeStar.Y;
