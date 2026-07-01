@@ -64,6 +64,9 @@ namespace _3DstarChart
         private TextBlock HudViewingVectorText;
         private PipeVisual3D RadarTargetRing; // Changed type to PipeVisual3D
         private Storyboard CameraSweepStoryboard;
+
+        private Storyboard HyperdriveFlightStoryboard;
+        private bool IsInLightSpeedWarp = false;
         // =====================================================================
         // INITIALIZATION & LIFECYCLE
         // =====================================================================
@@ -510,38 +513,48 @@ namespace _3DstarChart
                 SystemPositionTransform.OffsetY = targetY;
                 SystemPositionTransform.OffsetZ = targetZ;
 
-                Vector3D lookDirection = new Vector3D(0, 0, -1);
-                Vector3D upDirection = new Vector3D(0, 1, 0);
+                // =====================================================================
+                // FIXED: Only snap position if we aren't arriving from a click flight
+                // =====================================================================
+                Vector3D currentOffset = helixCamera.Position - new Point3D(targetX, targetY, targetZ);
 
-                Point3D startPosition = new Point3D(targetX, targetY, targetZ + SpaceDustAheadBuffer);
-                cameraTargetPosition = new Point3D(targetX, targetY, targetZ + BaseCameraApproachDistance);
+                // If the camera is already roughly at our target scale depth, don't teleport it back!
+                if (Math.Abs(currentOffset.Length - BaseCameraApproachDistance) > 1.0)
+                {
+                    Vector3D lookDirection = new Vector3D(0, 0, -1);
+                    Vector3D upDirection = new Vector3D(0, 1, 0);
 
-                helixCamera.LookDirection = lookDirection;
-                helixCamera.UpDirection = upDirection;
+                    Point3D startPosition = new Point3D(targetX, targetY, targetZ + SpaceDustAheadBuffer);
+                    cameraTargetPosition = new Point3D(targetX, targetY, targetZ + BaseCameraApproachDistance);
 
+                    helixCamera.LookDirection = lookDirection;
+                    helixCamera.UpDirection = upDirection;
+
+                    Point3DAnimation cameraFlight = new Point3DAnimation
+                    {
+                        From = startPosition,
+                        To = cameraTargetPosition,
+                        Duration = new Duration(TimeSpan.FromSeconds(FlightAnimationSeconds)),
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+
+                    cameraFlight.Completed += (s, args) =>
+                    {
+                        helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, null);
+                        helixCamera.Position = cameraTargetPosition;
+                    };
+
+                    helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, cameraFlight);
+                }
+                // =====================================================================
+
+                // Keep the structural mesh swell animations active so system objects populate smoothly
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleXProperty, null);
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleYProperty, null);
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleZProperty, null);
 
                 SystemScaleTransform.ScaleX = 1.0; SystemScaleTransform.ScaleY = 1.0; SystemScaleTransform.ScaleZ = 1.0;
-
-                SystemQuaternionRotation.Quaternion = new Quaternion(0, 0, 0, 1);
-
-                Point3DAnimation cameraFlight = new Point3DAnimation
-                {
-                    From = startPosition,
-                    To = cameraTargetPosition,
-                    Duration = new Duration(TimeSpan.FromSeconds(FlightAnimationSeconds)),
-                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-                };
-
-                cameraFlight.Completed += (s, args) =>
-                {
-                    helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, null);
-                    helixCamera.Position = cameraTargetPosition;
-                };
-
-                helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, cameraFlight);
+                SystemQuaternionRotation.Quaternion = new System.Windows.Media.Media3D.Quaternion(0, 0, 0, 1);
 
                 DoubleAnimation sunSwellAnimation = new DoubleAnimation
                 {
@@ -556,36 +569,94 @@ namespace _3DstarChart
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleZProperty, sunSwellAnimation);
             }
         }
-
-        private void NeighborRow_Click(object sender, MouseButtonEventArgs e)
+        /// <summary>
+        /// Fires when a HUD star node is clicked. Initiates a forward navigation flight
+        /// towards the target coordinates before initializing the new sub-system.
+        /// </summary>
+        public void NeighborRow_Click(object sender, MouseButtonEventArgs e)
         {
             if (sender is Border clickedBorder && clickedBorder.DataContext is StarNeighborDisplay selectedData)
             {
-                homeStar = selectedData.AssociatedStar;
                 if (RadarTargetRing != null)
                 {
+                    RadarTargetRing.BeginAnimation(PipeVisual3D.DiameterProperty, null);
                     RadarTargetRing.Visible = false;
                 }
-                if (CurrentSystemText != null) CurrentSystemText.Text = homeStar.Name.ToUpper();
-                if (HudSpectralText != null) HudSpectralText.Text = $"CLASS: {homeStar.SpectralType}";
-                if (HudCoordsText != null) HudCoordsText.Text = $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}";
-                if (HudDetailText != null) HudDetailText.Text = $"CATALOG ID: {homeStar.Id:D4}";
 
-                string constellation = homeStar != null && !string.IsNullOrEmpty(homeStar.Constellation) ? $"CONSTELLATION: {homeStar.Constellation.ToUpper()}" : "SECTOR: UNMAPPED SPEC";
-                if (HudConstellationText != null) HudConstellationText.Text = constellation;
+                Star targetStar = selectedData.AssociatedStar;
+                if (targetStar == null || MainViewport.Camera is not PerspectiveCamera helixCamera) return;
 
-                if (NeighborsTextList != null) NeighborsTextList.ItemsSource = null;
-                if (DistantTextList != null) DistantTextList.ItemsSource = null;
+                CameraSweepStoryboard?.Stop();
+                helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, null);
+                helixCamera.BeginAnimation(PerspectiveCamera.LookDirectionProperty, null);
+                helixCamera.BeginAnimation(PerspectiveCamera.UpDirectionProperty, null);
 
-                isAnimationFinished = false;
-                // Reset live screen vector readouts back to baseline approach metrics
-                if (HudViewingVectorText != null) HudViewingVectorText.Text = "VIEW BRG: 090° | PTH: +00°";
-                PopulateStarMap();
-                InitializeDustField();
-                AnimateToStar();
+                // 1. PAN SECTOR TO FACE TARGET (HALF VELOCITY CRUISE)
+                Point3D startPosition = helixCamera.Position;
+                Point3D destinationStarPos = new Point3D(targetStar.X, targetStar.Y, targetStar.Z);
+
+                Vector3D travelDirection = destinationStarPos - startPosition;
+                travelDirection.Normalize();
+
+                Vector3D targetRight = Vector3D.CrossProduct(travelDirection, new Vector3D(0, 1, 0));
+                Vector3D targetUpDir = Vector3D.CrossProduct(targetRight, travelDirection);
+                targetUpDir.Normalize();
+
+                // Slowed down from 0.8s to 1.6s for half-speed panning elegance
+                Vector3DAnimation lookAnim = new Vector3DAnimation { To = travelDirection, Duration = new Duration(TimeSpan.FromSeconds(1.6)), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                Vector3DAnimation upAnim = new Vector3DAnimation { To = targetUpDir, Duration = new Duration(TimeSpan.FromSeconds(1.6)), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+
+                // 2. SWELL SYSTEM FORWARD (Slowing from 2.5s to 5.0s for an elegant approach)
+                DoubleAnimation hyperdriveSwell = new DoubleAnimation
+                {
+                    To = MaxSwellAnimationScale * 8.0,
+                    Duration = new Duration(TimeSpan.FromSeconds(5.0)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+                };
+
+                // ENGAGE WARP ENGINE LIGHTSPEED GEOMETRY MODIFIER
+                IsInLightSpeedWarp = true;
+
+                hyperdriveSwell.Completed += (s, args) =>
+                {
+                    // DISENGAGE WARP MODE UPON ARRIVAL
+                    IsInLightSpeedWarp = false;
+
+                    homeStar = targetStar;
+
+                    if (CurrentSystemText != null) CurrentSystemText.Text = homeStar.Name.ToUpper();
+                    if (HudSpectralText != null) HudSpectralText.Text = $"CLASS: {homeStar.SpectralType}";
+                    if (HudCoordsText != null) HudCoordsText.Text = $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}";
+                    if (HudDetailText != null) HudDetailText.Text = $"CATALOG ID: {homeStar.Id:D4}";
+
+                    string constellation = homeStar != null && !string.IsNullOrEmpty(homeStar.Constellation)
+                        ? $"CONSTELLATION: {homeStar.Constellation.ToUpper()}"
+                        : "SECTOR: UNMAPPED SPEC";
+                    if (HudConstellationText != null) HudConstellationText.Text = constellation;
+
+                    if (NeighborsTextList != null) NeighborsTextList.ItemsSource = null;
+                    if (DistantTextList != null) DistantTextList.ItemsSource = null;
+
+                    cameraTargetPosition = new Point3D(homeStar.X, homeStar.Y, homeStar.Z + BaseCameraApproachDistance);
+
+                    helixCamera.Position = cameraTargetPosition;
+                    helixCamera.LookDirection = new Vector3D(0, 0, -1);
+                    helixCamera.UpDirection = new Vector3D(0, 1, 0);
+
+                    isAnimationFinished = false;
+
+                    PopulateStarMap();
+                    InitializeDustField();
+                    AnimateToStar();
+                };
+
+                helixCamera.BeginAnimation(PerspectiveCamera.LookDirectionProperty, lookAnim);
+                helixCamera.BeginAnimation(PerspectiveCamera.UpDirectionProperty, upAnim);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleXProperty, hyperdriveSwell);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleYProperty, hyperdriveSwell);
+                SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleZProperty, hyperdriveSwell);
             }
         }
-
         /// <summary>
         /// Fires when the cursor drifts over a HUD data node. Automatically snaps
         /// localized target coordinates or pan-sweeps the viewport lens array into alignment.
@@ -838,7 +909,8 @@ namespace _3DstarChart
                     double dz = helixCamera.Position.Z - cameraTargetPosition.Z;
                     double distanceToTarget = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
-                    if (distanceToTarget < 0.1)
+                    // FIXED: Allow rendering pass to proceed if we are actively streaming lightspeed lines
+                    if (distanceToTarget < 0.1 && !IsInLightSpeedWarp)
                     {
                         isAnimationFinished = true;
 
@@ -852,6 +924,10 @@ namespace _3DstarChart
                             DistantTextList.ItemsSource = deepRangeData;
                         }
                     }
+                    else if (distanceToTarget < 0.1 && IsInLightSpeedWarp)
+                    {
+                        // Keep rendering active during intermediate hyperdrive phases
+                    }
                     else
                     {
                         DustField.Points = new Point3DCollection();
@@ -863,9 +939,14 @@ namespace _3DstarChart
                 double maxBufferZ = targetZ + SpaceDustAheadBuffer;
                 double resetFarZ = targetZ;
 
+                // DYNAMIC SPEED PARAMETERS
+                // If hitting warp speed, multiply velocity and line stretch profiles tenfold
+                double currentWarpSpeed = IsInLightSpeedWarp ? (WarpSpeed * 4.0) : WarpSpeed;
+                double currentStreakLength = IsInLightSpeedWarp ? (WarpStreakLength * 25.0) : WarpStreakLength;
+
                 for (int i = 0; i < ParticleCount; i++)
                 {
-                    double nextZ = dustParticles[i].Z + WarpSpeed;
+                    double nextZ = dustParticles[i].Z + currentWarpSpeed;
 
                     if (nextZ > maxBufferZ)
                     {
@@ -880,7 +961,9 @@ namespace _3DstarChart
                     }
 
                     lineSegments.Add(dustParticles[i]);
-                    lineSegments.Add(new Point3D(dustParticles[i].X, dustParticles[i].Y, dustParticles[i].Z + WarpStreakLength));
+
+                    // The line segment stretches backward along the approach vectors based on current speed metrics
+                    lineSegments.Add(new Point3D(dustParticles[i].X, dustParticles[i].Y, dustParticles[i].Z + currentStreakLength));
                 }
 
                 DustField.Points = lineSegments;
@@ -888,10 +971,10 @@ namespace _3DstarChart
         }
     }
 
-    // =====================================================================
-    // EXPANDED DATA DISPLAY MODEL WITH VECTOR CALCULATIONS
-    // =====================================================================
-    public class StarNeighborDisplay
+        // =====================================================================
+        // EXPANDED DATA DISPLAY MODEL WITH VECTOR CALCULATIONS
+        // =====================================================================
+        public class StarNeighborDisplay
     {
         public Star AssociatedStar { get; set; }
         public string Name { get; set; }
