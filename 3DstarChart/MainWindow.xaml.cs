@@ -67,6 +67,8 @@ namespace _3DstarChart
 
         private Storyboard HyperdriveFlightStoryboard;
         private bool IsInLightSpeedWarp = false;
+        private double cameraYawDegrees = 180.0; // Starts facing down the default -Z axis
+        private double cameraPitchDegrees = 0.0;
         // =====================================================================
         // INITIALIZATION & LIFECYCLE
         // =====================================================================
@@ -762,116 +764,97 @@ namespace _3DstarChart
         }
 
         /// <summary>
-        /// Intercepts keyboard inputs to orbit endlessly around the target system.
-        /// Rotates the camera matrix seamlessly to eliminate polar jerking artifacts.
+        /// Intercepts keyboard inputs to look around from a fixed viewing point.
+        /// Aligns the universe billboard layer perfectly face-on to eliminate the flat dish effect.
         /// </summary>
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                double angleStep = 0.03; // Velocity step size for looking around
+                double angleStep = 3.0; // Panning sensitivity
                 double zoomMultiplier = 0.90;
-
-                // 1. Establish the current center configuration matrix
-                double centerX = homeStar != null ? homeStar.X : 0.0;
-                double centerY = homeStar != null ? homeStar.Y : 0.0;
-                double centerZ = homeStar != null ? homeStar.Z : 0.0;
-
-                // 2. EXTRACT LIVE BASIS VECTORS FROM THE CAMERA'S LENS FRAME
-                Vector3D lookDir = helixCamera.LookDirection;
-                lookDir.Normalize();
-
-                Vector3D localUp = helixCamera.UpDirection;
-                localUp.Normalize();
-
-                // Compute the horizontal side-to-side vector relative to the camera lens
-                Vector3D cameraRight = Vector3D.CrossProduct(lookDir, localUp);
-                cameraRight.Normalize();
-
-                Transform3DGroup lookRotation = new Transform3DGroup();
 
                 switch (e.Key)
                 {
-                    // Look Left / Right (Rotate the viewing vector around the global Y axis)
+                    // 1. UPDATE ANGULAR TRACKERS ONLY
                     case Key.Left:
-                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(new Vector3D(0, 1, 0), angleStep * (180.0 / Math.PI))));
+                        cameraYawDegrees += angleStep;
                         break;
                     case Key.Right:
-                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(new Vector3D(0, 1, 0), -angleStep * (180.0 / Math.PI))));
+                        cameraYawDegrees -= angleStep;
                         break;
 
-                    // Look Up / Down (Rotate the viewing vector around the camera's own right-to-left axis)
                     case Key.Up:
-                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, angleStep * (180.0 / Math.PI))));
+                        cameraPitchDegrees += angleStep;
+                        if (cameraPitchDegrees > 85.0) cameraPitchDegrees = 85.0;
                         break;
                     case Key.Down:
-                        lookRotation.Children.Add(new RotateTransform3D(new AxisAngleRotation3D(cameraRight, -angleStep * (180.0 / Math.PI))));
+                        cameraPitchDegrees -= angleStep;
+                        if (cameraPitchDegrees < -85.0) cameraPitchDegrees = -85.0;
                         break;
 
-                    // Zoom / Advance controls (Physically slide the look anchor forward or backward)
                     case Key.Z:
-                        helixCamera.Position += lookDir * (BaseCameraApproachDistance * (1 - zoomMultiplier));
-                        break;
+                        helixCamera.Position += helixCamera.LookDirection * (BaseCameraApproachDistance * (1 - zoomMultiplier));
+                        e.Handled = true;
+                        return;
                     case Key.X:
-                        helixCamera.Position -= lookDir * (BaseCameraApproachDistance * (1 - zoomMultiplier));
-                        break;
+                        helixCamera.Position -= helixCamera.LookDirection * (BaseCameraApproachDistance * (1 - zoomMultiplier));
+                        e.Handled = true;
+                        return;
 
                     default:
                         return;
                 }
 
-                // 3. APPLY EXPLICIT LOOK VECTOR TRANSFORMS (Camera position stays fixed!)
-                Vector3D newLookDir = lookRotation.Transform(lookDir);
-                newLookDir.Normalize();
-                helixCamera.LookDirection = newLookDir;
+                if (cameraYawDegrees < 0) cameraYawDegrees += 360.0;
+                if (cameraYawDegrees >= 360.0) cameraYawDegrees -= 360.0;
 
-                Vector3D newUpDir = lookRotation.Transform(localUp);
+                // 2. RECALCULATE CAMERA LOOK VECTOR (Spherical Coordinates)
+                double yawRad = cameraYawDegrees * (Math.PI / 180.0);
+                double pitchRad = cameraPitchDegrees * (Math.PI / 180.0);
+
+                double cosPitch = Math.Cos(pitchRad);
+                Vector3D newLookDir = new Vector3D(
+                    Math.Sin(yawRad) * cosPitch,
+                    Math.Sin(pitchRad),
+                    Math.Cos(yawRad) * cosPitch
+                );
+                newLookDir.Normalize();
+
+                // Build camera up framework
+                Vector3D absoluteUp = new Vector3D(0, 1, 0);
+                Vector3D cameraRight = Vector3D.CrossProduct(newLookDir, absoluteUp);
+                cameraRight.Normalize();
+
+                Vector3D newUpDir = Vector3D.CrossProduct(cameraRight, newLookDir);
                 newUpDir.Normalize();
+
+                // Commit the new view matrix to the viewport engine
+                helixCamera.LookDirection = newLookDir;
                 helixCamera.UpDirection = newUpDir;
 
                 // =====================================================================
-                // REAL-TIME MULTI-AXIS BILLBOARDING FOR STATIONARY CAMERA
+                // FIXED: TRUE SCREEN-ALIGNED BILLBOARDING QUATERNION
                 // =====================================================================
-                // To keep the star quads volumetric while you look away, they need to 
-                // match the camera's live position relative to the local system center.
-                double dx = helixCamera.Position.X - centerX;
-                double dy = helixCamera.Position.Y - centerY;
-                double dz = helixCamera.Position.Z - centerZ;
-                double currentRadius = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                // Instead of guessing the angles, we build the rotation directly out of 
+                // the camera's horizontal and vertical heading values. This guarantees 
+                // the quads stay parallel to the screen lens, making them look like 
+                // perfect volumetric spheres at all times.
+                AxisAngleRotation3D yawRotation = new AxisAngleRotation3D(new Vector3D(0, 1, 0), cameraYawDegrees);
+                AxisAngleRotation3D pitchRotation = new AxisAngleRotation3D(new Vector3D(1, 0, 0), -cameraPitchDegrees);
 
-                Vector3D billboardLookVector = new Vector3D(dx, dy, dz);
-                billboardLookVector.Normalize();
+                System.Windows.Media.Media3D.Quaternion qYaw = new System.Windows.Media.Media3D.Quaternion(yawRotation.Axis, yawRotation.Angle);
+                System.Windows.Media.Media3D.Quaternion qPitch = new System.Windows.Media.Media3D.Quaternion(pitchRotation.Axis, pitchRotation.Angle);
 
-                double yawRadians = Math.Atan2(billboardLookVector.X, billboardLookVector.Z);
-                double pitchRadians = -Math.Asin(billboardLookVector.Y);
-
-                double yawDegrees = yawRadians * (180.0 / Math.PI);
-                double pitchDegrees = pitchRadians * (180.0 / Math.PI);
-
-                AxisAngleRotation3D horizontalRotation = new AxisAngleRotation3D(new Vector3D(0, 1, 0), yawDegrees);
-                AxisAngleRotation3D verticalRotation = new AxisAngleRotation3D(new Vector3D(1, 0, 0), pitchDegrees);
-
-                System.Windows.Media.Media3D.Quaternion qHorizontal = new System.Windows.Media.Media3D.Quaternion(horizontalRotation.Axis, horizontalRotation.Angle);
-                System.Windows.Media.Media3D.Quaternion qVertical = new System.Windows.Media.Media3D.Quaternion(verticalRotation.Axis, verticalRotation.Angle);
-
-                SystemQuaternionRotation.Quaternion = qHorizontal * qVertical;
+                // Multiply in order: Pitch first, then Yaw to match standard WPF world spaces
+                SystemQuaternionRotation.Quaternion = qPitch * qYaw;
                 // =====================================================================
 
-                // =====================================================================
-                // RADAR HUD TEXT UPDATE
-                // =====================================================================
-                // Calculate radar values based on where the camera is actually looking now
-                double viewBrgRad = Math.Atan2(newLookDir.X, newLookDir.Z);
-                double viewBrgDeg = viewBrgRad * (180.0 / Math.PI);
-                if (viewBrgDeg < 0) viewBrgDeg += 360.0;
-
-                double viewPthDeg = Math.Asin(newLookDir.Y) * (180.0 / Math.PI);
-
+                // 4. REFRESH HUD TEXT READOUT
                 if (HudViewingVectorText != null)
                 {
-                    HudViewingVectorText.Text = $"VIEW BRG: {viewBrgDeg:000}° | PTH: {viewPthDeg:+00;-00;00}°";
+                    HudViewingVectorText.Text = $"VIEW BRG: {cameraYawDegrees:000}° | PTH: {cameraPitchDegrees:+00;-00;00}°";
                 }
-                // =====================================================================
 
                 e.Handled = true;
             }
