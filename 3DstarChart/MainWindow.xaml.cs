@@ -65,6 +65,8 @@ namespace _3DstarChart
         private PipeVisual3D RadarTargetRing; // Changed type to PipeVisual3D
         private Storyboard CameraSweepStoryboard;
 
+      
+
         private Storyboard HyperdriveFlightStoryboard;
         private bool IsInLightSpeedWarp = false;
         private double cameraYawDegrees = 180.0; // Starts facing down the default -Z axis
@@ -86,6 +88,8 @@ namespace _3DstarChart
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            SystemScaleTransform = this.FindName("SystemScaleTransform") as ScaleTransform3D;
+            SystemQuaternionRotation = this.FindName("SystemQuaternionRotation") as QuaternionRotation3D;
             TextContainer = new ModelVisual3D();
             DustField = new LinesVisual3D { Color = Color.FromArgb(176, 255, 255, 255), Thickness = 1.5 };
             // Initialize a thin, glowing cyan selection ring using core Helix properties
@@ -438,7 +442,15 @@ namespace _3DstarChart
                 double distanceToHome = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
                 // Initialize tracking container with system origins passed straight down for bearing calculations
-                neighborList.Add(new StarNeighborDisplay(star, homeStar, distanceToHome));
+                if (!hasProperName && distanceToHome > 0.001)
+                {
+                    // Skip adding this companion star to the sidebar lists, 
+                    // but allow it to remain rendered as a point in 3D space.
+                }
+                else
+                {
+                    neighborList.Add(new StarNeighborDisplay(star, homeStar, distanceToHome));
+                }
             }
 
             neighborList.Sort((s1, s2) => s1.Distance.CompareTo(s2.Distance));
@@ -515,12 +527,8 @@ namespace _3DstarChart
                 SystemPositionTransform.OffsetY = targetY;
                 SystemPositionTransform.OffsetZ = targetZ;
 
-                // =====================================================================
-                // FIXED: Only snap position if we aren't arriving from a click flight
-                // =====================================================================
                 Vector3D currentOffset = helixCamera.Position - new Point3D(targetX, targetY, targetZ);
 
-                // If the camera is already roughly at our target scale depth, don't teleport it back!
                 if (Math.Abs(currentOffset.Length - BaseCameraApproachDistance) > 1.0)
                 {
                     Vector3D lookDirection = new Vector3D(0, 0, -1);
@@ -544,18 +552,26 @@ namespace _3DstarChart
                     {
                         helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, null);
                         helixCamera.Position = cameraTargetPosition;
+                        isAnimationFinished = true; // Signal arrival completion here
                     };
 
                     helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, cameraFlight);
                 }
-                // =====================================================================
+                else
+                {
+                    // If we arrived from a menu flight click, we are already positioned.
+                    // Release the render loop framework immediately!
+                    isAnimationFinished = true;
+                }
 
-                // Keep the structural mesh swell animations active so system objects populate smoothly
+                // Safely detach old scale operations
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleXProperty, null);
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleYProperty, null);
                 SystemScaleTransform.BeginAnimation(ScaleTransform3D.ScaleZProperty, null);
 
-                SystemScaleTransform.ScaleX = 1.0; SystemScaleTransform.ScaleY = 1.0; SystemScaleTransform.ScaleZ = 1.0;
+                SystemScaleTransform.ScaleX = 1.0;
+                SystemScaleTransform.ScaleY = 1.0;
+                SystemScaleTransform.ScaleZ = 1.0;
                 SystemQuaternionRotation.Quaternion = new System.Windows.Media.Media3D.Quaternion(0, 0, 0, 1);
 
                 DoubleAnimation sunSwellAnimation = new DoubleAnimation
@@ -589,11 +605,10 @@ namespace _3DstarChart
                 if (targetStar == null || MainViewport.Camera is not PerspectiveCamera helixCamera) return;
 
                 CameraSweepStoryboard?.Stop();
-                helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, null);
                 helixCamera.BeginAnimation(PerspectiveCamera.LookDirectionProperty, null);
                 helixCamera.BeginAnimation(PerspectiveCamera.UpDirectionProperty, null);
+                helixCamera.BeginAnimation(PerspectiveCamera.PositionProperty, null);
 
-                // 1. PAN SECTOR TO FACE TARGET (HALF VELOCITY CRUISE)
                 Point3D startPosition = helixCamera.Position;
                 Point3D destinationStarPos = new Point3D(targetStar.X, targetStar.Y, targetStar.Z);
 
@@ -604,11 +619,9 @@ namespace _3DstarChart
                 Vector3D targetUpDir = Vector3D.CrossProduct(targetRight, travelDirection);
                 targetUpDir.Normalize();
 
-                // Slowed down from 0.8s to 1.6s for half-speed panning elegance
                 Vector3DAnimation lookAnim = new Vector3DAnimation { To = travelDirection, Duration = new Duration(TimeSpan.FromSeconds(1.6)), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
                 Vector3DAnimation upAnim = new Vector3DAnimation { To = targetUpDir, Duration = new Duration(TimeSpan.FromSeconds(1.6)), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
 
-                // 2. SWELL SYSTEM FORWARD (Slowing from 2.5s to 5.0s for an elegant approach)
                 DoubleAnimation hyperdriveSwell = new DoubleAnimation
                 {
                     To = MaxSwellAnimationScale * 8.0,
@@ -616,16 +629,13 @@ namespace _3DstarChart
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
                 };
 
-                // ENGAGE WARP ENGINE LIGHTSPEED GEOMETRY MODIFIER
                 IsInLightSpeedWarp = true;
 
                 hyperdriveSwell.Completed += (s, args) =>
                 {
-                    // DISENGAGE WARP MODE UPON ARRIVAL
-                    IsInLightSpeedWarp = false;
-
                     homeStar = targetStar;
 
+                    // Update UI Dashboard readout texts
                     if (CurrentSystemText != null) CurrentSystemText.Text = homeStar.Name.ToUpper();
                     if (HudSpectralText != null) HudSpectralText.Text = $"CLASS: {homeStar.SpectralType}";
                     if (HudCoordsText != null) HudCoordsText.Text = $"X:{homeStar.X:F2} Y:{homeStar.Y:F2} Z:{homeStar.Z:F2}";
@@ -645,11 +655,35 @@ namespace _3DstarChart
                     helixCamera.LookDirection = new Vector3D(0, 0, -1);
                     helixCamera.UpDirection = new Vector3D(0, 1, 0);
 
-                    isAnimationFinished = false;
+                    cameraYawDegrees = 180.0;
+                    cameraPitchDegrees = 0.0;
+
+                    // =====================================================================
+                    // CRITICAL FIX: FORCE TERMINATION OF WARP RENDERING STATE
+                    // =====================================================================
+                    // By forcing these true before map generation, we completely bypass 
+                    // the temperamental floating-point distance check in OnRenderFrame.
+                    IsInLightSpeedWarp = false;
+                    isAnimationFinished = true;
+                    // =====================================================================
 
                     PopulateStarMap();
                     InitializeDustField();
                     AnimateToStar();
+
+                    // =====================================================================
+                    // FORCE IMMEDIATE DATA BINDING TO THE HUD SIDEBARS
+                    // =====================================================================
+                    if (this.Resources["CachedNeighbors"] is List<StarNeighborDisplay> cachedData)
+                    {
+                        NeighborsTextList.ItemsSource = cachedData;
+                    }
+
+                    if (this.Resources["CachedDeepRange"] is List<StarNeighborDisplay> deepRangeData)
+                    {
+                        DistantTextList.ItemsSource = deepRangeData;
+                    }
+                    // =====================================================================
                 };
 
                 helixCamera.BeginAnimation(PerspectiveCamera.LookDirectionProperty, lookAnim);
@@ -762,21 +796,20 @@ namespace _3DstarChart
                 RadarTargetRing.Visible = false;
             }
         }
-
         /// <summary>
         /// Intercepts keyboard inputs to look around from a fixed viewing point.
-        /// Aligns the universe billboard layer perfectly face-on to eliminate the flat dish effect.
+        /// Modifies the camera lens orientation vectors natively to prevent animation flattening.
         /// </summary>
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
             if (MainViewport.Camera is PerspectiveCamera helixCamera)
             {
-                double angleStep = 3.0; // Panning sensitivity
+                double angleStep = 3.0; // Panning sensitivity step
                 double zoomMultiplier = 0.90;
 
+                // 1. CHOOSE BASE INPUT ACCELERATOR
                 switch (e.Key)
                 {
-                    // 1. UPDATE ANGULAR TRACKERS ONLY
                     case Key.Left:
                         cameraYawDegrees += angleStep;
                         break;
@@ -809,7 +842,7 @@ namespace _3DstarChart
                 if (cameraYawDegrees < 0) cameraYawDegrees += 360.0;
                 if (cameraYawDegrees >= 360.0) cameraYawDegrees -= 360.0;
 
-                // 2. RECALCULATE CAMERA LOOK VECTOR (Spherical Coordinates)
+                // 2. CONVERT SPHERICAL COORDINATES DIRECTLY TO CAMERA LENS VECTORS
                 double yawRad = cameraYawDegrees * (Math.PI / 180.0);
                 double pitchRad = cameraPitchDegrees * (Math.PI / 180.0);
 
@@ -821,7 +854,6 @@ namespace _3DstarChart
                 );
                 newLookDir.Normalize();
 
-                // Build camera up framework
                 Vector3D absoluteUp = new Vector3D(0, 1, 0);
                 Vector3D cameraRight = Vector3D.CrossProduct(newLookDir, absoluteUp);
                 cameraRight.Normalize();
@@ -829,36 +861,25 @@ namespace _3DstarChart
                 Vector3D newUpDir = Vector3D.CrossProduct(cameraRight, newLookDir);
                 newUpDir.Normalize();
 
-                // Commit the new view matrix to the viewport engine
+                // 3. APPLY DISK-SAFE TRANSFORMS TO THE CAMERA OBJECT
+                // By applying native changes directly to the camera pipeline, WPF bypasses 
+                // the active background world scaling transitions entirely.
                 helixCamera.LookDirection = newLookDir;
                 helixCamera.UpDirection = newUpDir;
 
-                // =====================================================================
-                // FIXED: TRUE SCREEN-ALIGNED BILLBOARDING QUATERNION
-                // =====================================================================
-                // Instead of guessing the angles, we build the rotation directly out of 
-                // the camera's horizontal and vertical heading values. This guarantees 
-                // the quads stay parallel to the screen lens, making them look like 
-                // perfect volumetric spheres at all times.
-                AxisAngleRotation3D yawRotation = new AxisAngleRotation3D(new Vector3D(0, 1, 0), cameraYawDegrees);
-                AxisAngleRotation3D pitchRotation = new AxisAngleRotation3D(new Vector3D(1, 0, 0), -cameraPitchDegrees);
+                // 4. REFRESH NAVIGATION OVERLAY READOUTS
+                double viewBrgDeg = cameraYawDegrees;
+                if (viewBrgDeg < 0) viewBrgDeg += 360.0;
 
-                System.Windows.Media.Media3D.Quaternion qYaw = new System.Windows.Media.Media3D.Quaternion(yawRotation.Axis, yawRotation.Angle);
-                System.Windows.Media.Media3D.Quaternion qPitch = new System.Windows.Media.Media3D.Quaternion(pitchRotation.Axis, pitchRotation.Angle);
-
-                // Multiply in order: Pitch first, then Yaw to match standard WPF world spaces
-                SystemQuaternionRotation.Quaternion = qPitch * qYaw;
-                // =====================================================================
-
-                // 4. REFRESH HUD TEXT READOUT
                 if (HudViewingVectorText != null)
                 {
-                    HudViewingVectorText.Text = $"VIEW BRG: {cameraYawDegrees:000}° | PTH: {cameraPitchDegrees:+00;-00;00}°";
+                    HudViewingVectorText.Text = $"VIEW BRG: {viewBrgDeg:000}° | PTH: {cameraPitchDegrees:+00;-00;00}°";
                 }
 
                 e.Handled = true;
             }
         }
+
         private void InitializeDustField()
         {
             dustParticles = new Point3D[ParticleCount];
@@ -892,11 +913,11 @@ namespace _3DstarChart
                     double dz = helixCamera.Position.Z - cameraTargetPosition.Z;
                     double distanceToTarget = Math.Sqrt(dx * dx + dy * dy + dz * dz);
 
-                    // FIXED: Allow rendering pass to proceed if we are actively streaming lightspeed lines
                     if (distanceToTarget < 0.1 && !IsInLightSpeedWarp)
                     {
                         isAnimationFinished = true;
 
+                        // Rebind the lists to show the clean neighbor profiles
                         if (this.Resources["CachedNeighbors"] is List<StarNeighborDisplay> cachedData)
                         {
                             NeighborsTextList.ItemsSource = cachedData;
